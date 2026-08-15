@@ -79,6 +79,7 @@ class TTSService {
     const words = cleanText.split(/\s+/).filter(Boolean).length;
     if (words === 0) return baseRate;
 
+    // Standard Vietnamese speech: ~3.5 words per second
     const estimatedNormalSeconds = Math.max(0.5, (words / 3.5) + 0.15);
     const targetSeconds = Math.max(0.4, durationSeconds - 0.1);
 
@@ -96,24 +97,30 @@ class TTSService {
   }
 
   /**
-   * Pre-cache audio blobs for instant zero-latency dubbing during playback
+   * Pre-cache audio blobs for all subtitles with chunked parallel fetching
    */
   public async prefetchSubtitles(subtitles: SubtitleSegment[]): Promise<void> {
     const texts = subtitles
-      .map(s => s.vietnameseText.trim())
+      .map(s => s.vietnameseText.replace(/^[^:：]+[:：]\s*/, '').trim())
       .filter(t => t.length > 0 && !this.audioBlobCache.has(t));
 
-    for (const text of texts.slice(0, 20)) {
-      try {
-        const safeText = text.slice(0, 200);
-        const url = `/api/tts?text=${encodeURIComponent(safeText)}`;
-        const res = await fetch(url);
-        if (res.ok) {
-          const blob = await res.blob();
-          const blobUrl = URL.createObjectURL(blob);
-          this.audioBlobCache.set(text, blobUrl);
-        }
-      } catch {}
+    const chunkSize = 4;
+    for (let i = 0; i < texts.length; i += chunkSize) {
+      const chunk = texts.slice(i, i + chunkSize);
+      await Promise.all(
+        chunk.map(async (text) => {
+          try {
+            const safeText = text.slice(0, 200);
+            const url = `/api/tts?text=${encodeURIComponent(safeText)}`;
+            const res = await fetch(url);
+            if (res.ok) {
+              const blob = await res.blob();
+              const blobUrl = URL.createObjectURL(blob);
+              this.audioBlobCache.set(text, blobUrl);
+            }
+          } catch {}
+        })
+      );
     }
   }
 
@@ -128,7 +135,7 @@ class TTSService {
     onEnd?: () => void,
     segmentDuration?: number
   ): void {
-    // Strip speaker prefixes like "Bố: " for cleaner voice speech
+    // Strip speaker prefixes like "Bố: " for natural voice dubbing
     const cleanText = text.replace(/^[^:：]+[:：]\s*/, '').trim();
     if (!cleanText) {
       onEnd?.();
@@ -224,12 +231,12 @@ class TTSService {
 
         audio.src = currentUrl;
         
-        // Fast 600ms fallback timer to ensure voice is never blocked
+        // Fast 500ms fallback timer to ensure voice is never delayed
         fallbackTimer = setTimeout(() => {
           if (!hasStarted) {
             tryNext();
           }
-        }, 600);
+        }, 500);
 
         const playPromise = audio.play();
         if (playPromise !== undefined) {
