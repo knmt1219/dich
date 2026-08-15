@@ -7,8 +7,9 @@ import {
   Volume2,
   Sparkles,
   Loader2,
-  Key
+  CheckCircle2
 } from 'lucide-react';
+import confetti from 'canvas-confetti';
 
 import type {
   SubtitleSegment,
@@ -46,9 +47,8 @@ export const App: React.FC = () => {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoDuration, setVideoDuration] = useState<number>(0);
   const [currentTime, setCurrentTime] = useState<number>(0);
-  const [currentVideoFile, setCurrentVideoFile] = useState<File | null>(null);
 
-  // Subtitles & AI State (Starts empty until user clicks Translate)
+  // Subtitles & AI State (Populated strictly after AI finishes processing)
   const [subtitles, setSubtitles] = useState<SubtitleSegment[]>([]);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
   const [translationTone, setTranslationTone] = useState<TranslationTone>('natural');
@@ -114,15 +114,19 @@ export const App: React.FC = () => {
     uploaderRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  // Video Selected (Uploaded or Preset Chosen)
+  // Triggered as soon as a video is uploaded/dropped
   const handleVideoSelected = async (file: File | null, url: string, sampleData?: SampleVideo) => {
     ttsService.stop();
     setVideoUrl(url);
     setCurrentTime(0);
-    setCurrentVideoFile(file);
-    setSubtitles([]); // Start with empty subtitles until user clicks translate
+    setSubtitles([]); // Clear any previous subtitles
+    setIsProcessingAI(true);
+    setProcessingProgress(15);
+    setProcessingStatusText('Đang nạp video và trích xuất dòng thời gian...');
 
-    // 1. If user doesn't have an API key, pop up API Key modal to enter key first
+    handleScrollToEditor();
+
+    // 1. If user doesn't have an API key, pop up API Key modal to enter key
     const keys = getStoredApiKey();
     if (!keys.geminiKey && !keys.openaiKey) {
       setIsApiKeyModalOpen(true);
@@ -130,7 +134,21 @@ export const App: React.FC = () => {
 
     if (sampleData) {
       setVideoDuration(sampleData.duration);
-      handleScrollToEditor();
+      // Simulate rapid AI analysis for sample video
+      setProcessingProgress(45);
+      setProcessingStatusText('Đang phân tích lời thoại mẫu tiếng Trung...');
+      setTimeout(() => {
+        setProcessingProgress(80);
+        setProcessingStatusText('Đang hoàn thiện bản dịch tiếng Việt & lồng tiếng...');
+        setTimeout(() => {
+          setProcessingProgress(100);
+          setSubtitles(sampleData.subtitles);
+          setIsProcessingAI(false);
+          try {
+            confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
+          } catch {}
+        }, 500);
+      }, 500);
       return;
     }
 
@@ -153,25 +171,15 @@ export const App: React.FC = () => {
     }
 
     setVideoDuration(realDuration);
-    handleScrollToEditor();
-  };
 
-  // Start AI Translation Process when user clicks the Translate button
-  const handleStartTranslation = async (tone: TranslationTone = translationTone) => {
-    if (!videoUrl) return;
-
-    setIsProcessingAI(true);
-    setProcessingProgress(15);
-    setProcessingStatusText(`Đang phân tích và dịch thuật với ${geminiModel.toUpperCase()}...`);
-
+    // 3. Automatically run AI transcription and translation pipeline
     try {
-      const keys = getStoredApiKey();
       const generatedSubs = await transcribeChineseVideo(
-        currentVideoFile,
-        videoDuration || 30,
+        file,
+        realDuration,
         keys.geminiKey,
         geminiModel,
-        tone,
+        translationTone,
         (progress, status) => {
           setProcessingProgress(progress);
           setProcessingStatusText(status);
@@ -179,8 +187,11 @@ export const App: React.FC = () => {
       );
       setSubtitles(generatedSubs);
       setActiveTab('subtitles');
+      try {
+        confetti({ particleCount: 60, spread: 70, origin: { y: 0.6 } });
+      } catch {}
     } catch (err) {
-      console.error('Error translating video:', err);
+      console.error('Error processing video:', err);
     } finally {
       setIsProcessingAI(false);
     }
@@ -261,7 +272,7 @@ export const App: React.FC = () => {
               Tải Lên Video Tiếng Trung Cần Dịch & Lồng Tiếng
             </h2>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.4rem' }}>
-              Hỗ trợ kéo thả video MP4, WebM từ Douyin, TikTok, Kuaishou hoặc dán trực tiếp link video.
+              Kéo thả video MP4 / WebM hoặc chọn mẫu video có sẵn để AI tự động tạo thanh tiến độ dịch và lồng tiếng.
             </p>
           </div>
 
@@ -300,7 +311,7 @@ export const App: React.FC = () => {
               </h2>
             </div>
 
-            {videoUrl && (
+            {videoUrl && !isProcessingAI && subtitles.length > 0 && (
               <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap' }}>
                 <button
                   onClick={handleScrollToUploader}
@@ -311,27 +322,25 @@ export const App: React.FC = () => {
                   <span>Chọn Video Khác Ở Trên</span>
                 </button>
 
-                {subtitles.length > 0 && (
-                  <button
-                    onClick={() => setIsExportModalOpen(true)}
-                    className="btn-primary"
-                    style={{
-                      backgroundColor: '#10b981',
-                      borderColor: 'rgba(255, 255, 255, 0.2)',
-                      fontSize: '0.85rem',
-                      padding: '0.55rem 1.25rem'
-                    }}
-                  >
-                    <Download size={16} />
-                    <span>Xuất File / Tải Về</span>
-                  </button>
-                )}
+                <button
+                  onClick={() => setIsExportModalOpen(true)}
+                  className="btn-primary"
+                  style={{
+                    backgroundColor: '#10b981',
+                    borderColor: 'rgba(255, 255, 255, 0.2)',
+                    fontSize: '0.85rem',
+                    padding: '0.55rem 1.25rem'
+                  }}
+                >
+                  <Download size={16} />
+                  <span>Xuất File / Tải Về</span>
+                </button>
               </div>
             )}
           </div>
 
-          {/* Synchronized Equal-Height Split Workspace */}
-          {!videoUrl ? (
+          {/* 1. STATE: No video uploaded yet */}
+          {!videoUrl && (
             <div style={{
               backgroundColor: 'var(--bg-card)',
               border: '2px dashed var(--border-active)',
@@ -363,7 +372,7 @@ export const App: React.FC = () => {
                   Chưa Có Video Nào Được Tải Lên
                 </h3>
                 <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', maxWidth: '540px', margin: '0 auto', lineHeight: 1.55 }}>
-                  Vui lòng tải lên video tiếng Trung của bạn (MP4 / WebM) hoặc dán link / chọn mẫu demo ở phần trên. AI sẽ tự động phân tích và tạo phụ đề lồng tiếng dành riêng cho video đó!
+                  Vui lòng kéo thả video tiếng Trung của bạn ở phần trên. AI sẽ tự động kích hoạt thanh tiến độ và hiển thị toàn bộ video đã dịch và lồng tiếng khi hoàn tất!
                 </p>
               </div>
               <button
@@ -383,7 +392,113 @@ export const App: React.FC = () => {
                 <span>⬆️ Tải Video Hoặc Chọn Mẫu Ngay</span>
               </button>
             </div>
-          ) : (
+          )}
+
+          {/* 2. STATE: Video is currently being processed by AI (Full Spotlight Progress Bar) */}
+          {videoUrl && isProcessingAI && (
+            <div style={{
+              backgroundColor: 'var(--bg-card)',
+              border: '1px solid var(--border-active)',
+              borderRadius: 'var(--radius-xl)',
+              padding: '4rem 2rem',
+              textAlign: 'center',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: 'var(--shadow-glow)',
+              maxWidth: '720px',
+              margin: '0 auto'
+            }}>
+              <div style={{
+                width: '72px',
+                height: '72px',
+                borderRadius: '50%',
+                backgroundColor: 'rgba(37, 99, 235, 0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: '1.5rem',
+                border: '1px solid rgba(59, 130, 246, 0.4)',
+                boxShadow: '0 0 35px rgba(37, 99, 235, 0.4)'
+              }}>
+                <Loader2 size={38} color="#60a5fa" className="audio-bar" />
+              </div>
+
+              <div className="badge badge-brand" style={{ marginBottom: '0.75rem' }}>
+                <Sparkles size={13} />
+                <span>Đang xử lý với {geminiModel.toUpperCase()}</span>
+              </div>
+
+              <h3 style={{ fontSize: '1.45rem', fontWeight: 800, color: '#ffffff', marginBottom: '0.5rem' }}>
+                {processingStatusText || 'Đang phân tích và dịch thuật video...'}
+              </h3>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', maxWidth: '500px', margin: '0 auto 2rem', lineHeight: 1.5 }}>
+                Hệ thống đang tự động trích xuất timeline, nhận diện lời thoại tiếng Trung, dịch sang tiếng Việt chuẩn ngữ cảnh và khởi tạo giọng đọc lồng tiếng...
+              </p>
+
+              {/* Progress Track */}
+              <div style={{ width: '100%', maxWidth: '520px', margin: '0 auto' }}>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '0.6rem',
+                  fontSize: '0.85rem',
+                  fontWeight: 700,
+                  color: '#60a5fa'
+                }}>
+                  <span>Tiến độ dịch thuật & lồng tiếng:</span>
+                  <span style={{ fontSize: '1rem', color: '#ffffff' }}>{processingProgress}%</span>
+                </div>
+
+                <div style={{
+                  height: '10px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                  borderRadius: 'var(--radius-full)',
+                  overflow: 'hidden',
+                  padding: '2px',
+                  border: '1px solid rgba(255, 255, 255, 0.1)'
+                }}>
+                  <div style={{
+                    width: `${processingProgress}%`,
+                    height: '100%',
+                    borderRadius: 'var(--radius-full)',
+                    background: 'linear-gradient(90deg, #2563eb, #38bdf8, #34d399)',
+                    transition: 'width 0.4s ease',
+                    boxShadow: '0 0 12px rgba(56, 189, 248, 0.6)'
+                  }} />
+                </div>
+              </div>
+
+              {/* Steps Checklist */}
+              <div style={{
+                display: 'flex',
+                gap: '1.25rem',
+                justifyContent: 'center',
+                flexWrap: 'wrap',
+                marginTop: '2.25rem',
+                fontSize: '0.78rem',
+                color: 'var(--text-secondary)'
+              }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: processingProgress >= 25 ? '#34d399' : 'inherit' }}>
+                  <CheckCircle2 size={14} /> 1. Timeline Video
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: processingProgress >= 55 ? '#34d399' : 'inherit' }}>
+                  <CheckCircle2 size={14} /> 2. Nhận diện tiếng Trung
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: processingProgress >= 80 ? '#34d399' : 'inherit' }}>
+                  <CheckCircle2 size={14} /> 3. Dịch thuật tiếng Việt
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: processingProgress >= 100 ? '#34d399' : 'inherit' }}>
+                  <CheckCircle2 size={14} /> 4. Lồng tiếng AI
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* 3. STATE: Translation Finished 100% (Reveal Full Video Player + Subtitle Editor + Voice Dubbing) */}
+          {videoUrl && !isProcessingAI && subtitles.length > 0 && (
             <div style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))',
@@ -430,7 +545,7 @@ export const App: React.FC = () => {
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                     <span className="badge badge-green" style={{ fontSize: '0.7rem' }}>
-                      {subtitles.length > 0 ? `${subtitles.length} câu thoại song ngữ` : 'Chờ bấm nút dịch'}
+                      {subtitles.length} câu thoại song ngữ đã dịch
                     </span>
                     <span className="badge badge-brand" style={{ fontSize: '0.7rem' }}>
                       {VIETNAMESE_VOICES.find(v => v.id === dubbingSettings.selectedVoiceId)?.name}
@@ -443,7 +558,7 @@ export const App: React.FC = () => {
                 </div>
               </div>
 
-              {/* Right Column: Dynamic State (Start Translation Box OR Full Editor) */}
+              {/* Right Column: Tabbed Subtitle / Dubbing / Style Workspace */}
               <div style={{
                 display: 'flex',
                 flexDirection: 'column',
@@ -452,250 +567,122 @@ export const App: React.FC = () => {
                 overflow: 'hidden',
                 gap: '0.65rem'
               }}>
-                {subtitles.length === 0 ? (
-                  /* Action Box: Ready to Translate */
-                  <div style={{
-                    flex: 1,
-                    backgroundColor: 'var(--bg-surface)',
-                    border: '1px solid var(--border-subtle)',
-                    borderRadius: 'var(--radius-xl)',
-                    padding: '2.5rem 1.75rem',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    textAlign: 'center',
-                    gap: '1.25rem',
-                    boxShadow: 'var(--shadow-md)'
-                  }}>
-                    {isProcessingAI ? (
-                      <div style={{ width: '100%', maxWidth: '380px' }}>
-                        <Loader2 size={44} color="#3b82f6" className="audio-bar" style={{ margin: '0 auto 1rem' }} />
-                        <h4 style={{ fontSize: '1.15rem', fontWeight: 800, color: '#ffffff', marginBottom: '0.4rem' }}>
-                          {processingStatusText || 'AI đang phân tích & dịch thuật...'}
-                        </h4>
-                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1.25rem' }}>
-                          Đang xử lý lời thoại video và tạo giọng đọc lồng tiếng chuẩn xác...
-                        </p>
-                        <div style={{
-                          width: '100%',
-                          height: '8px',
-                          backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                          borderRadius: 'var(--radius-full)',
-                          overflow: 'hidden'
-                        }}>
-                          <div style={{
-                            width: `${processingProgress}%`,
-                            height: '100%',
-                            backgroundColor: '#3b82f6',
-                            transition: 'width 0.3s ease'
-                          }} />
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <div style={{
-                          width: '64px',
-                          height: '64px',
-                          borderRadius: '50%',
-                          backgroundColor: 'rgba(37, 99, 235, 0.15)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          border: '1px solid rgba(59, 130, 246, 0.3)',
-                          boxShadow: '0 0 25px rgba(37, 99, 235, 0.25)'
-                        }}>
-                          <Sparkles size={30} color="#60a5fa" />
-                        </div>
-
-                        <div>
-                          <div className="badge badge-brand" style={{ marginBottom: '0.5rem', display: 'inline-flex' }}>
-                            <span>⭐ Mô hình: {geminiModel.toUpperCase()}</span>
-                          </div>
-                          <h3 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#ffffff', marginBottom: '0.4rem' }}>
-                            Video Đã Sẵn Sàng Để Dịch
-                          </h3>
-                          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', maxWidth: '400px', margin: '0 auto', lineHeight: 1.5 }}>
-                            Video dài <strong>{videoDuration.toFixed(1)}s</strong> đã được nạp thành công. Hãy chọn văn phong và bấm nút bên dưới để AI dịch và tạo lồng tiếng.
-                          </p>
-                        </div>
-
-                        {/* Tone Selector */}
-                        <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', justifyContent: 'center' }}>
-                          {(['natural', 'cinematic', 'news', 'humorous'] as TranslationTone[]).map((t) => (
-                            <button
-                              key={t}
-                              type="button"
-                              onClick={() => setTranslationTone(t)}
-                              className="btn-secondary"
-                              style={{
-                                padding: '0.35rem 0.65rem',
-                                fontSize: '0.75rem',
-                                backgroundColor: translationTone === t ? 'rgba(37, 99, 235, 0.25)' : 'var(--bg-card)',
-                                borderColor: translationTone === t ? '#3b82f6' : 'var(--border-subtle)',
-                                color: translationTone === t ? '#60a5fa' : 'var(--text-secondary)'
-                              }}
-                            >
-                              {t === 'natural' ? '🌿 Tự nhiên' : t === 'cinematic' ? '🎬 Điện ảnh' : t === 'news' ? '📰 Review' : '😄 Hài hước'}
-                            </button>
-                          ))}
-                        </div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', width: '100%', maxWidth: '340px' }}>
-                          <button
-                            onClick={() => handleStartTranslation(translationTone)}
-                            className="btn-primary"
-                            style={{
-                              backgroundColor: '#2563eb',
-                              padding: '0.85rem 1.5rem',
-                              fontSize: '0.95rem',
-                              fontWeight: 700,
-                              gap: '0.5rem',
-                              boxShadow: '0 4px 20px rgba(37, 99, 235, 0.5)',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            <Sparkles size={18} />
-                            <span>🚀 Bắt Đầu Dịch Video Bằng AI</span>
-                          </button>
-
-                          <button
-                            onClick={() => setIsApiKeyModalOpen(true)}
-                            className="btn-secondary"
-                            style={{
-                              fontSize: '0.75rem',
-                              padding: '0.45rem 0.85rem',
-                              justifyContent: 'center'
-                            }}
-                          >
-                            <Key size={13} />
-                            <span>{hasApiKey ? 'Đổi Mô Hình AI / Key' : 'Cài Đặt API Key (Gemini 1.5 Pro)'}</span>
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                ) : (
-                  /* Full Subtitle / Dubbing / Style Workspace */
-                  <>
-                    {/* Tab Navigation Header */}
-                    <div style={{
+                {/* Tab Navigation Header */}
+                <div style={{
+                  display: 'flex',
+                  gap: '0.4rem',
+                  backgroundColor: 'var(--bg-surface)',
+                  padding: '0.3rem',
+                  borderRadius: 'var(--radius-lg)',
+                  border: '1px solid var(--border-subtle)',
+                  flexShrink: 0
+                }}>
+                  <button
+                    onClick={() => setActiveTab('subtitles')}
+                    style={{
+                      flex: 1,
                       display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
                       gap: '0.4rem',
-                      backgroundColor: 'var(--bg-surface)',
-                      padding: '0.3rem',
-                      borderRadius: 'var(--radius-lg)',
-                      border: '1px solid var(--border-subtle)',
-                      flexShrink: 0
-                    }}>
-                      <button
-                        onClick={() => setActiveTab('subtitles')}
-                        style={{
-                          flex: 1,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '0.4rem',
-                          padding: '0.55rem 0.4rem',
-                          borderRadius: 'var(--radius-md)',
-                          backgroundColor: activeTab === 'subtitles' ? 'var(--brand-primary)' : 'transparent',
-                          color: activeTab === 'subtitles' ? '#ffffff' : 'var(--text-secondary)',
-                          border: 'none',
-                          fontSize: '0.8rem',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          transition: 'all 0.2s ease'
-                        }}
-                      >
-                        <Languages size={15} />
-                        <span>Biên Tập Phụ Đề ({subtitles.length})</span>
-                      </button>
+                      padding: '0.55rem 0.4rem',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: activeTab === 'subtitles' ? 'var(--brand-primary)' : 'transparent',
+                      color: activeTab === 'subtitles' ? '#ffffff' : 'var(--text-secondary)',
+                      border: 'none',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    <Languages size={15} />
+                    <span>Biên Tập Phụ Đề ({subtitles.length})</span>
+                  </button>
 
-                      <button
-                        onClick={() => setActiveTab('voices')}
-                        style={{
-                          flex: 1,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '0.4rem',
-                          padding: '0.55rem 0.4rem',
-                          borderRadius: 'var(--radius-md)',
-                          backgroundColor: activeTab === 'voices' ? 'var(--brand-primary)' : 'transparent',
-                          color: activeTab === 'voices' ? '#ffffff' : 'var(--text-secondary)',
-                          border: 'none',
-                          fontSize: '0.8rem',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          transition: 'all 0.2s ease'
-                        }}
-                      >
-                        <Volume2 size={15} />
-                        <span>Lồng Tiếng AI</span>
-                      </button>
+                  <button
+                    onClick={() => setActiveTab('voices')}
+                    style={{
+                      flex: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.4rem',
+                      padding: '0.55rem 0.4rem',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: activeTab === 'voices' ? 'var(--brand-primary)' : 'transparent',
+                      color: activeTab === 'voices' ? '#ffffff' : 'var(--text-secondary)',
+                      border: 'none',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    <Volume2 size={15} />
+                    <span>Lồng Tiếng AI</span>
+                  </button>
 
-                      <button
-                        onClick={() => setActiveTab('styles')}
-                        style={{
-                          flex: 1,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '0.4rem',
-                          padding: '0.55rem 0.4rem',
-                          borderRadius: 'var(--radius-md)',
-                          backgroundColor: activeTab === 'styles' ? 'var(--brand-primary)' : 'transparent',
-                          color: activeTab === 'styles' ? '#ffffff' : 'var(--text-secondary)',
-                          border: 'none',
-                          fontSize: '0.8rem',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          transition: 'all 0.2s ease'
-                        }}
-                      >
-                        <Palette size={15} />
-                        <span>Kiểu Phụ Đề</span>
-                      </button>
-                    </div>
+                  <button
+                    onClick={() => setActiveTab('styles')}
+                    style={{
+                      flex: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.4rem',
+                      padding: '0.55rem 0.4rem',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: activeTab === 'styles' ? 'var(--brand-primary)' : 'transparent',
+                      color: activeTab === 'styles' ? '#ffffff' : 'var(--text-secondary)',
+                      border: 'none',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    <Palette size={15} />
+                    <span>Kiểu Phụ Đề</span>
+                  </button>
+                </div>
 
-                    {/* Tab Content Display */}
-                    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-                      {activeTab === 'subtitles' && (
-                        <SubtitleEditor
-                          subtitles={subtitles}
-                          currentTime={currentTime}
-                          selectedSegmentId={selectedSegmentId}
-                          dubbing={dubbingSettings}
-                          translationTone={translationTone}
-                          geminiModel={geminiModel}
-                          onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
-                          onSelectSegment={(id, time) => {
-                            setSelectedSegmentId(id);
-                            if (time !== undefined) setCurrentTime(time);
-                          }}
-                          onUpdateSegment={handleUpdateSegment}
-                          onDeleteSegment={handleDeleteSegment}
-                          onAddSegment={handleAddSegment}
-                          onBatchTranslate={handleBatchTranslate}
-                        />
-                      )}
+                {/* Tab Content Display */}
+                <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                  {activeTab === 'subtitles' && (
+                    <SubtitleEditor
+                      subtitles={subtitles}
+                      currentTime={currentTime}
+                      selectedSegmentId={selectedSegmentId}
+                      dubbing={dubbingSettings}
+                      translationTone={translationTone}
+                      geminiModel={geminiModel}
+                      onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
+                      onSelectSegment={(id, time) => {
+                        setSelectedSegmentId(id);
+                        if (time !== undefined) setCurrentTime(time);
+                      }}
+                      onUpdateSegment={handleUpdateSegment}
+                      onDeleteSegment={handleDeleteSegment}
+                      onAddSegment={handleAddSegment}
+                      onBatchTranslate={handleBatchTranslate}
+                    />
+                  )}
 
-                      {activeTab === 'voices' && (
-                        <VoiceDubbingPanel
-                          dubbing={dubbingSettings}
-                          onUpdateDubbing={(newSettings) => setDubbingSettings(prev => ({ ...prev, ...newSettings }))}
-                        />
-                      )}
+                  {activeTab === 'voices' && (
+                    <VoiceDubbingPanel
+                      dubbing={dubbingSettings}
+                      onUpdateDubbing={(newSettings) => setDubbingSettings(prev => ({ ...prev, ...newSettings }))}
+                    />
+                  )}
 
-                      {activeTab === 'styles' && (
-                        <SubtitleStylePanel
-                          style={subtitleStyle}
-                          onUpdateStyle={(newStyle) => setSubtitleStyle(prev => ({ ...prev, ...newStyle }))}
-                        />
-                      )}
-                    </div>
-                  </>
-                )}
+                  {activeTab === 'styles' && (
+                    <SubtitleStylePanel
+                      style={subtitleStyle}
+                      onUpdateStyle={(newStyle) => setSubtitleStyle(prev => ({ ...prev, ...newStyle }))}
+                    />
+                  )}
+                </div>
               </div>
             </div>
           )}
