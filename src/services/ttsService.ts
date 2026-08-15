@@ -8,6 +8,7 @@ class TTSService {
   private audioCache = new Map<string, string>();
   private audioDurationCache = new Map<string, number>();
   private systemVoices: SpeechSynthesisVoice[] = [];
+  private isAudioUnlocked = false;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -27,11 +28,37 @@ class TTSService {
     }
   }
 
+  /**
+   * Unlock browser audio context on user gesture (Play click, button click)
+   */
+  public unlockAudio(): void {
+    if (this.isAudioUnlocked) return;
+    this.isAudioUnlocked = true;
+
+    if (this.synth) {
+      try {
+        if (this.synth.paused) {
+          this.synth.resume();
+        }
+      } catch {}
+    }
+
+    try {
+      const silentAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==');
+      silentAudio.volume = 0.01;
+      silentAudio.play().catch(() => {});
+    } catch {}
+  }
+
   public getAvailableSystemVoices(): SpeechSynthesisVoice[] {
     if (this.systemVoices.length === 0 && this.synth) {
       this.systemVoices = this.synth.getVoices();
     }
-    return this.systemVoices.filter(v => v.lang.startsWith('vi') || v.lang.includes('VI') || v.lang.includes('vi_VN'));
+    return this.systemVoices.filter(v => 
+      v.lang.toLowerCase().startsWith('vi') || 
+      v.lang.toLowerCase().includes('viet') || 
+      v.name.toLowerCase().includes('vietnam')
+    );
   }
 
   /**
@@ -60,23 +87,32 @@ class TTSService {
   }
 
   /**
-   * Get audio URL for Vietnamese text
+   * Get audio candidate URLs for Vietnamese text
    */
+  public getAudioUrls(text: string): string[] {
+    const cleanText = text.trim().slice(0, 200);
+    if (!cleanText) return [];
+
+    return [
+      `/api/tts?text=${encodeURIComponent(cleanText)}`,
+      `https://translate.google.com/translate_tts?ie=UTF-8&tl=vi&client=dict-chrome-ex&q=${encodeURIComponent(cleanText)}`,
+      `https://translate.google.com/translate_tts?ie=UTF-8&tl=vi&client=gtx&q=${encodeURIComponent(cleanText)}`
+    ];
+  }
+
   public getAudioUrlForText(text: string): string {
     const cleanText = text.trim();
     if (!cleanText) return '';
-
     if (this.audioCache.has(cleanText)) {
       return this.audioCache.get(cleanText)!;
     }
-
-    const proxyUrl = `/api/tts?text=${encodeURIComponent(cleanText)}`;
-    this.audioCache.set(cleanText, proxyUrl);
-    return proxyUrl;
+    const url = `/api/tts?text=${encodeURIComponent(cleanText)}`;
+    this.audioCache.set(cleanText, url);
+    return url;
   }
 
   /**
-   * Speak Vietnamese text with Multi-Tier Fallback (Edge Proxy -> Direct Stream -> Web Speech API)
+   * Speak Vietnamese text with Zero-Failure Multi-Tier Pipeline
    */
   public speak(
     text: string,
@@ -93,73 +129,90 @@ class TTSService {
     }
 
     this.stop();
+    this.unlockAudio();
 
-    // Initial estimation rate
+    // Initial speed estimation
     let initialRate = settings.speechRate || 1.0;
     if (settings.autoSpeedSync && segmentDuration && segmentDuration > 0) {
       initialRate = this.calculateDynamicRate(cleanText, segmentDuration, initialRate);
     }
 
-    // Force Web Speech API if user selected system engine
+    // If user explicitly chose Web Speech API
     if (settings.ttsEngine === 'system') {
       this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
       return;
     }
 
-    // Strategy 1: Edge Audio Proxy (/api/tts via Cloudflare Functions & Vite Dev)
-    const audioUrl = this.getAudioUrlForText(cleanText);
-    const audio = new Audio(audioUrl);
-    this.currentAudio = audio;
+    // Multi-candidate audio stream player
+    const candidateUrls = this.getAudioUrls(cleanText);
+    let currentCandidateIndex = 0;
+    let hasStarted = false;
 
-    audio.volume = Math.min(1.0, Math.max(0.05, settings.dubbingVolume));
-    audio.playbackRate = initialRate;
+    const tryPlayNextCandidate = () => {
+      if (currentCandidateIndex >= candidateUrls.length) {
+        // All audio URLs exhausted -> Fallback to Web Speech API
+        this.currentAudio = null;
+        this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
+        return;
+      }
 
-    const applyPreciseSpeed = () => {
-      if (audio.duration && !isNaN(audio.duration) && audio.duration > 0) {
-        this.audioDurationCache.set(cleanText, audio.duration);
-        if (settings.autoSpeedSync && segmentDuration && segmentDuration > 0) {
-          const targetSeconds = Math.max(0.4, segmentDuration - 0.1);
-          const exactRate = (audio.duration / targetSeconds) * (settings.speechRate || 1.0);
-          audio.playbackRate = Math.min(2.5, Math.max(0.75, Math.round(exactRate * 100) / 100));
+      const audioUrl = candidateUrls[currentCandidateIndex];
+      currentCandidateIndex++;
+
+      const audio = new Audio(audioUrl);
+      this.currentAudio = audio;
+      audio.volume = Math.min(1.0, Math.max(0.05, settings.dubbingVolume));
+      audio.playbackRate = initialRate;
+
+      const applyPreciseSpeed = () => {
+        if (audio.duration && !isNaN(audio.duration) && audio.duration > 0) {
+          this.audioDurationCache.set(cleanText, audio.duration);
+          if (settings.autoSpeedSync && segmentDuration && segmentDuration > 0) {
+            const targetSeconds = Math.max(0.4, segmentDuration - 0.1);
+            const exactRate = (audio.duration / targetSeconds) * (settings.speechRate || 1.0);
+            audio.playbackRate = Math.min(2.5, Math.max(0.75, Math.round(exactRate * 100) / 100));
+          }
         }
+      };
+
+      audio.onloadedmetadata = applyPreciseSpeed;
+      if (audio.readyState >= 1) {
+        applyPreciseSpeed();
+      }
+
+      audio.onplay = () => {
+        hasStarted = true;
+        this.isSpeaking = true;
+        onStart?.();
+      };
+
+      audio.onended = () => {
+        this.isSpeaking = false;
+        this.currentAudio = null;
+        onEnd?.();
+      };
+
+      audio.onerror = () => {
+        if (!hasStarted) {
+          tryPlayNextCandidate();
+        } else {
+          this.isSpeaking = false;
+          this.currentAudio = null;
+          onEnd?.();
+        }
+      };
+
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(() => {
+          if (!hasStarted) {
+            tryPlayNextCandidate();
+          }
+        });
       }
     };
 
-    audio.onloadedmetadata = applyPreciseSpeed;
-    if (audio.readyState >= 1) {
-      applyPreciseSpeed();
-    }
-
-    let started = false;
-
-    audio.onplay = () => {
-      started = true;
-      this.isSpeaking = true;
-      onStart?.();
-    };
-
-    audio.onended = () => {
-      this.isSpeaking = false;
-      this.currentAudio = null;
-      onEnd?.();
-    };
-
-    audio.onerror = () => {
-      // Fallback Strategy 2: Web Speech API (100% reliable on all browsers / Cloudflare Pages)
-      this.currentAudio = null;
-      this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
-    };
-
-    const playPromise = audio.play();
-    if (playPromise !== undefined) {
-      playPromise.catch((err) => {
-        console.warn('Audio stream error, falling back to Web Speech API:', err);
-        if (!started) {
-          this.currentAudio = null;
-          this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
-        }
-      });
-    }
+    tryPlayNextCandidate();
   }
 
   /**
@@ -195,9 +248,9 @@ class TTSService {
       // Voice pitch customization
       let basePitch = settings.pitch || 1.0;
       if (voiceConfig.id === 'vi-story-male') {
-        basePitch = 0.9; // deeper dramatic pitch
+        basePitch = 0.88;
       } else if (voiceConfig.id === 'vi-youth-female') {
-        basePitch = 1.15; // brighter Gen Z pitch
+        basePitch = 1.15;
       }
 
       utterance.rate = Math.min(2.0, Math.max(0.75, effectiveRate));

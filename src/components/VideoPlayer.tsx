@@ -112,6 +112,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const togglePlay = () => {
     if (!videoRef.current) return;
     if (videoRef.current.paused) {
+      ttsService.unlockAudio();
       videoRef.current.play();
       setIsPlaying(true);
     } else {
