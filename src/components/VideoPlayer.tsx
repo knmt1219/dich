@@ -52,7 +52,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // Sync internal time and find active subtitle
   useEffect(() => {
     const active = subtitles.find(
-      (s) => currentTime >= s.startTime && currentTime <= s.endTime
+      (s) => currentTime >= (s.startTime - 0.1) && currentTime <= (s.endTime + 0.1)
     );
     setCurrentSub(active);
 
