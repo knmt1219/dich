@@ -91,7 +91,7 @@ class TTSService {
    * Get audio URL for Vietnamese text
    */
   public getAudioUrlForText(text: string): string {
-    const cleanText = text.trim().slice(0, 200);
+    const cleanText = text.replace(/^[^:：]+[:：]\s*/, '').trim().slice(0, 200);
     if (!cleanText) return '';
     return `/api/tts?text=${encodeURIComponent(cleanText)}`;
   }
@@ -157,107 +157,99 @@ class TTSService {
       return;
     }
 
-    // Check pre-cached audio blob
+    // 1. Check pre-cached audio blob
     const cachedBlobUrl = this.audioBlobCache.get(cleanText);
-    const encoded = encodeURIComponent(cleanText.slice(0, 200));
-    const candidateUrls: string[] = [];
-    if (cachedBlobUrl) candidateUrls.push(cachedBlobUrl);
-    candidateUrls.push(
-      `/api/tts?text=${encoded}`,
-      `https://translate.google.com/translate_tts?ie=UTF-8&tl=vi&client=dict-chrome-ex&q=${encoded}`
-    );
+    if (cachedBlobUrl) {
+      this.playAudioUrl(cachedBlobUrl, cleanText, initialRate, settings, voiceConfig, onStart, onEnd, segmentDuration);
+      return;
+    }
 
-    let candidateIdx = 0;
-    let hasStarted = false;
-    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const tryNext = () => {
-      if (hasStarted) return;
-      if (fallbackTimer) {
-        clearTimeout(fallbackTimer);
-        fallbackTimer = null;
-      }
-
-      if (candidateIdx >= candidateUrls.length) {
-        // Fallback immediately to Web Speech API
-        this.currentAudio = null;
-        this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
-        return;
-      }
-
-      const currentUrl = candidateUrls[candidateIdx];
-      candidateIdx++;
-
-      try {
-        const audio = new Audio();
-        this.currentAudio = audio;
-        audio.preload = 'auto';
-        audio.volume = Math.min(1.0, Math.max(0.05, settings.dubbingVolume));
-        audio.playbackRate = Math.min(2.5, Math.max(0.75, initialRate));
-
-        audio.onloadedmetadata = () => {
-          if (audio.duration && !isNaN(audio.duration) && audio.duration > 0) {
-            this.audioDurationCache.set(cleanText, audio.duration);
-            if (settings.autoSpeedSync && segmentDuration && segmentDuration > 0) {
-              const targetSeconds = Math.max(0.4, segmentDuration - 0.1);
-              const exactRate = (audio.duration / targetSeconds) * (settings.speechRate || 1.0);
-              audio.playbackRate = Math.min(2.5, Math.max(0.75, Math.round(exactRate * 100) / 100));
-            }
-          }
-        };
-
-        audio.onplay = () => {
-          hasStarted = true;
-          this.isSpeaking = true;
-          if (fallbackTimer) clearTimeout(fallbackTimer);
-          onStart?.();
-        };
-
-        audio.onended = () => {
-          this.isSpeaking = false;
-          this.currentAudio = null;
-          onEnd?.();
-        };
-
-        audio.onerror = () => {
-          if (!hasStarted) {
-            tryNext();
-          } else {
-            this.isSpeaking = false;
-            this.currentAudio = null;
-            onEnd?.();
-          }
-        };
-
-        audio.src = currentUrl;
-        
-        // Fast 500ms fallback timer to ensure voice is never delayed
-        fallbackTimer = setTimeout(() => {
-          if (!hasStarted) {
-            tryNext();
-          }
-        }, 500);
-
-        const playPromise = audio.play();
-        if (playPromise !== undefined) {
-          playPromise.catch(() => {
-            if (!hasStarted) {
-              tryNext();
-            }
-          });
+    // 2. Try fetching from Cloud TTS endpoint
+    const safeText = cleanText.slice(0, 200);
+    const cloudUrl = `/api/tts?text=${encodeURIComponent(safeText)}`;
+    
+    // Quick test fetch to create Blob
+    fetch(cloudUrl)
+      .then(async (res) => {
+        if (res.ok) {
+          const blob = await res.blob();
+          const blobUrl = URL.createObjectURL(blob);
+          this.audioBlobCache.set(cleanText, blobUrl);
+          this.playAudioUrl(blobUrl, cleanText, initialRate, settings, voiceConfig, onStart, onEnd, segmentDuration);
+        } else {
+          // Fallback to Web Speech API
+          this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
         }
-      } catch {
-        tryNext();
-      }
-    };
+      })
+      .catch(() => {
+        // Fallback to Web Speech API immediately on network error
+        this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
+      });
+  }
 
-    tryNext();
+  private playAudioUrl(
+    url: string,
+    cleanText: string,
+    initialRate: number,
+    settings: DubbingSettings,
+    voiceConfig: VoiceConfig,
+    onStart?: () => void,
+    onEnd?: () => void,
+    segmentDuration?: number
+  ): void {
+    try {
+      const audio = new Audio();
+      this.currentAudio = audio;
+      audio.preload = 'auto';
+      audio.volume = Math.min(1.0, Math.max(0.05, settings.dubbingVolume));
+      audio.playbackRate = Math.min(2.5, Math.max(0.75, initialRate));
+
+      audio.onloadedmetadata = () => {
+        if (audio.duration && !isNaN(audio.duration) && audio.duration > 0) {
+          this.audioDurationCache.set(cleanText, audio.duration);
+          if (settings.autoSpeedSync && segmentDuration && segmentDuration > 0) {
+            const targetSeconds = Math.max(0.4, segmentDuration - 0.1);
+            const exactRate = (audio.duration / targetSeconds) * (settings.speechRate || 1.0);
+            audio.playbackRate = Math.min(2.5, Math.max(0.75, Math.round(exactRate * 100) / 100));
+          }
+        }
+      };
+
+      audio.onplay = () => {
+        this.isSpeaking = true;
+        onStart?.();
+      };
+
+      audio.onended = () => {
+        this.isSpeaking = false;
+        this.currentAudio = null;
+        onEnd?.();
+      };
+
+      audio.onerror = () => {
+        this.isSpeaking = false;
+        this.currentAudio = null;
+        // Fallback to Web Speech API
+        this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
+      };
+
+      audio.src = url;
+
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(() => {
+          this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
+        });
+      }
+    } catch {
+      this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
+    }
   }
 
   /**
-   * Web Speech API fallback with guaranteed speech and Chrome heartbeat
+   * Web Speech API fallback with Chromium fix (delayed speak after cancel)
    */
-  private speakWebSpeech(
+  public speakWebSpeech(
     text: string,
     voiceConfig: VoiceConfig,
     settings: DubbingSettings,
@@ -276,72 +268,80 @@ class TTSService {
         window.speechSynthesis.resume();
       }
 
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'vi-VN';
+      // Chromium Bug Fix: Delay speak by 40ms after cancel
+      setTimeout(() => {
+        try {
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.lang = 'vi-VN';
 
-      let effectiveRate = settings.speechRate || 1.0;
-      if (settings.autoSpeedSync && segmentDuration && segmentDuration > 0) {
-        effectiveRate = this.calculateDynamicRate(text, segmentDuration, effectiveRate);
-      }
-
-      let basePitch = settings.pitch || 1.0;
-      if (voiceConfig.id === 'vi-story-male') {
-        basePitch = 0.88;
-      } else if (voiceConfig.id === 'vi-youth-female') {
-        basePitch = 1.15;
-      }
-
-      utterance.rate = Math.min(2.0, Math.max(0.75, effectiveRate));
-      utterance.pitch = Math.min(1.3, Math.max(0.8, basePitch));
-      utterance.volume = Math.min(1.0, Math.max(0.1, settings.dubbingVolume || 1.0));
-
-      const viVoices = this.getAvailableSystemVoices();
-      if (viVoices.length > 0) {
-        const matched = viVoices.find(v =>
-          voiceConfig.gender === 'female'
-            ? v.name.toLowerCase().includes('female') || v.name.toLowerCase().includes('nữ') || v.name.toLowerCase().includes('hoaimy') || v.name.toLowerCase().includes('mai') || v.name.toLowerCase().includes('linh')
-            : v.name.toLowerCase().includes('male') || v.name.toLowerCase().includes('nam') || v.name.toLowerCase().includes('namminh') || v.name.toLowerCase().includes('minh')
-        ) || viVoices[0];
-        if (matched) utterance.voice = matched;
-      }
-
-      // Chrome SpeechSynthesis Heartbeat Fix
-      if (this.synthHeartbeatTimer) clearInterval(this.synthHeartbeatTimer);
-      this.synthHeartbeatTimer = setInterval(() => {
-        if (window.speechSynthesis.speaking) {
-          window.speechSynthesis.resume();
-        } else {
-          if (this.synthHeartbeatTimer) {
-            clearInterval(this.synthHeartbeatTimer);
-            this.synthHeartbeatTimer = null;
+          let effectiveRate = settings.speechRate || 1.0;
+          if (settings.autoSpeedSync && segmentDuration && segmentDuration > 0) {
+            effectiveRate = this.calculateDynamicRate(text, segmentDuration, effectiveRate);
           }
+
+          let basePitch = settings.pitch || 1.0;
+          if (voiceConfig.id === 'vi-story-male') {
+            basePitch = 0.88;
+          } else if (voiceConfig.id === 'vi-youth-female') {
+            basePitch = 1.15;
+          }
+
+          utterance.rate = Math.min(2.0, Math.max(0.75, effectiveRate));
+          utterance.pitch = Math.min(1.3, Math.max(0.8, basePitch));
+          utterance.volume = Math.min(1.0, Math.max(0.1, settings.dubbingVolume || 1.0));
+
+          const viVoices = this.getAvailableSystemVoices();
+          if (viVoices.length > 0) {
+            const matched = viVoices.find(v =>
+              voiceConfig.gender === 'female'
+                ? v.name.toLowerCase().includes('female') || v.name.toLowerCase().includes('nữ') || v.name.toLowerCase().includes('hoaimy') || v.name.toLowerCase().includes('mai') || v.name.toLowerCase().includes('linh')
+                : v.name.toLowerCase().includes('male') || v.name.toLowerCase().includes('nam') || v.name.toLowerCase().includes('namminh') || v.name.toLowerCase().includes('minh')
+            ) || viVoices[0];
+            if (matched) utterance.voice = matched;
+          }
+
+          // Chrome SpeechSynthesis Heartbeat
+          if (this.synthHeartbeatTimer) clearInterval(this.synthHeartbeatTimer);
+          this.synthHeartbeatTimer = setInterval(() => {
+            if (window.speechSynthesis.speaking) {
+              window.speechSynthesis.resume();
+            } else {
+              if (this.synthHeartbeatTimer) {
+                clearInterval(this.synthHeartbeatTimer);
+                this.synthHeartbeatTimer = null;
+              }
+            }
+          }, 250);
+
+          utterance.onstart = () => {
+            this.isSpeaking = true;
+            onStart?.();
+          };
+
+          utterance.onend = () => {
+            this.isSpeaking = false;
+            if (this.synthHeartbeatTimer) {
+              clearInterval(this.synthHeartbeatTimer);
+              this.synthHeartbeatTimer = null;
+            }
+            onEnd?.();
+          };
+
+          utterance.onerror = () => {
+            this.isSpeaking = false;
+            if (this.synthHeartbeatTimer) {
+              clearInterval(this.synthHeartbeatTimer);
+              this.synthHeartbeatTimer = null;
+            }
+            onEnd?.();
+          };
+
+          window.speechSynthesis.speak(utterance);
+        } catch {
+          this.isSpeaking = false;
+          onEnd?.();
         }
-      }, 250);
-
-      utterance.onstart = () => {
-        this.isSpeaking = true;
-        onStart?.();
-      };
-
-      utterance.onend = () => {
-        this.isSpeaking = false;
-        if (this.synthHeartbeatTimer) {
-          clearInterval(this.synthHeartbeatTimer);
-          this.synthHeartbeatTimer = null;
-        }
-        onEnd?.();
-      };
-
-      utterance.onerror = () => {
-        this.isSpeaking = false;
-        if (this.synthHeartbeatTimer) {
-          clearInterval(this.synthHeartbeatTimer);
-          this.synthHeartbeatTimer = null;
-        }
-        onEnd?.();
-      };
-
-      window.speechSynthesis.speak(utterance);
+      }, 40);
     } catch {
       this.isSpeaking = false;
       onEnd?.();
