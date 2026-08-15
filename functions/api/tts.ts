@@ -1,5 +1,5 @@
-// Cloudflare Pages Serverless Edge Function for Vietnamese AI Voice Dubbing (TTS)
-// This file is automatically executed by Cloudflare Pages on the edge network.
+// Cloudflare Pages Serverless Edge Function for High-Quality Vietnamese AI Voice Dubbing (TTS)
+// Runs on Cloudflare Edge globally with 0 CORS issues and multi-upstream resilience.
 
 interface Env {}
 
@@ -8,28 +8,32 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   const text = url.searchParams.get('text') || '';
 
   if (!text.trim()) {
-    return new Response('Missing text parameter', { status: 400 });
+    return new Response('Missing text parameter', {
+      status: 400,
+      headers: {
+        'Access-Control-Allow-Origin': '*'
+      }
+    });
   }
 
   const cleanText = text.trim().slice(0, 200);
-  const candidateUrls = [
-    `https://translate.google.com/translate_tts?ie=UTF-8&tl=vi&client=dict-chrome-ex&q=${encodeURIComponent(cleanText)}`,
-    `https://translate.google.com/translate_tts?ie=UTF-8&tl=vi&client=gtx&q=${encodeURIComponent(cleanText)}`,
-    `https://translate.google.com/translate_tts?ie=UTF-8&tl=vi&client=tw-ob&q=${encodeURIComponent(cleanText)}`
-  ];
+  const candidateClients = ['dict-chrome-ex', 'gtx', 'tw-ob'];
 
-  for (const ttsUrl of candidateUrls) {
+  for (const client of candidateClients) {
+    const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=vi&client=${client}&q=${encodeURIComponent(cleanText)}`;
     try {
       const ttsResponse = await fetch(ttsUrl, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
           'Referer': 'https://translate.google.com/',
           'Accept': '*/*'
         }
       });
 
-      if (ttsResponse.ok && ttsResponse.status === 200) {
-        return new Response(ttsResponse.body, {
+      if (ttsResponse.ok && (ttsResponse.status === 200 || ttsResponse.status === 206)) {
+        const audioBuffer = await ttsResponse.arrayBuffer();
+        return new Response(audioBuffer, {
           status: 200,
           headers: {
             'Content-Type': 'audio/mpeg',
@@ -43,7 +47,12 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     } catch {}
   }
 
-  return new Response('Upstream TTS Error', { status: 502 });
+  return new Response('Upstream TTS Error', {
+    status: 502,
+    headers: {
+      'Access-Control-Allow-Origin': '*'
+    }
+  });
 };
 
 export const onRequestOptions: PagesFunction<Env> = async () => {

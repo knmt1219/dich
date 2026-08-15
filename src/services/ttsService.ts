@@ -1,4 +1,4 @@
-import type { VoiceConfig, DubbingSettings } from '../types/video';
+import type { VoiceConfig, DubbingSettings, SubtitleSegment } from '../types/video';
 import { VIETNAMESE_VOICES } from '../mockData/sampleVideos';
 
 class TTSService {
@@ -6,6 +6,7 @@ class TTSService {
   private synth: SpeechSynthesis | null = null;
   private isSpeaking = false;
   private audioDurationCache = new Map<string, number>();
+  private audioBlobCache = new Map<string, string>();
   private systemVoices: SpeechSynthesisVoice[] = [];
   private isAudioUnlocked = false;
 
@@ -95,6 +96,28 @@ class TTSService {
   }
 
   /**
+   * Pre-cache audio blobs for instant zero-latency dubbing during playback
+   */
+  public async prefetchSubtitles(subtitles: SubtitleSegment[]): Promise<void> {
+    const texts = subtitles
+      .map(s => s.vietnameseText.trim())
+      .filter(t => t.length > 0 && !this.audioBlobCache.has(t));
+
+    for (const text of texts.slice(0, 15)) {
+      try {
+        const safeText = text.slice(0, 200);
+        const url = `/api/tts?text=${encodeURIComponent(safeText)}`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const blob = await res.blob();
+          const blobUrl = URL.createObjectURL(blob);
+          this.audioBlobCache.set(text, blobUrl);
+        }
+      } catch {}
+    }
+  }
+
+  /**
    * Speak Vietnamese text with Instant Fallback Pipeline
    */
   public speak(
@@ -126,13 +149,18 @@ class TTSService {
       return;
     }
 
-    // Candidate URLs: 1. Cloudflare Functions Proxy, 2. Direct Google TTS
+    // Check if we have pre-cached blob URL
+    const cachedBlobUrl = this.audioBlobCache.get(cleanText);
+
+    // Candidate URLs
     const encoded = encodeURIComponent(cleanText.slice(0, 200));
-    const candidateUrls = [
+    const candidateUrls: string[] = [];
+    if (cachedBlobUrl) candidateUrls.push(cachedBlobUrl);
+    candidateUrls.push(
       `/api/tts?text=${encoded}`,
       `https://translate.google.com/translate_tts?ie=UTF-8&tl=vi&client=dict-chrome-ex&q=${encoded}`,
       `https://translate.google.com/translate_tts?ie=UTF-8&tl=vi&client=gtx&q=${encoded}`
-    ];
+    );
 
     let candidateIdx = 0;
     let hasStarted = false;
@@ -198,12 +226,12 @@ class TTSService {
 
         audio.src = currentUrl;
         
-        // Safety timeout: if audio takes >1200ms to load, switch to next candidate or Web Speech
+        // Safety timeout: if audio takes >900ms to load, switch to next candidate or Web Speech
         fallbackTimer = setTimeout(() => {
           if (!hasStarted) {
             tryNext();
           }
-        }, 1200);
+        }, 900);
 
         const playPromise = audio.play();
         if (playPromise !== undefined) {
@@ -303,6 +331,7 @@ class TTSService {
       try {
         this.currentAudio.pause();
         this.currentAudio.currentTime = 0;
+        this.currentAudio.src = '';
       } catch (e) {
         console.warn('Error pausing audio:', e);
       }

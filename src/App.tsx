@@ -194,6 +194,7 @@ export const App: React.FC = () => {
         }
       );
       setSubtitles(generatedSubs);
+      ttsService.prefetchSubtitles(generatedSubs).catch(() => {});
       setActiveTab('subtitles');
       showToast('✅ Hoàn thành dịch thuật 100% & sẵn sàng phát!');
     } catch (err) {
