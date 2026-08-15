@@ -1,5 +1,40 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Production build outputs
+dist/
+dist-ssr/
+build/
+out/
+
+# Environment Variables and Secret Keys
+.env
+.env.*
+!.env.example
+*.env
+*.local
+*.pem
+*.key
+*.cert
+
+# Video & Large Media Test Files (Ignore user test uploads)
+*.mp4
+*.m4v
+*.mov
+*.avi
+*.mkv
+*.webm
+*.flv
+*.wmv
+*.wav
+*.mp3
+!public/**/*.svg
+!src/assets/**/*
+
 # Logs
-logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -7,18 +42,32 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
+# Coverage and Test Output
+coverage/
+*.lcov
+.nyc_output
 
-# Editor directories and files
-.vscode/*
+# Editor directories and OS Files
+.vscode/
 !.vscode/extensions.json
-.idea
-.DS_Store
+.idea/
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary & Cache Files
+.cache/
+.temp/
+.tmp/
+tmp/
+temp/
+.system_generated/
