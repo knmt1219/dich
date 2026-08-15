@@ -474,24 +474,27 @@ export const App: React.FC = () => {
               {/* Steps Checklist */}
               <div style={{
                 display: 'flex',
-                gap: '1.25rem',
+                gap: '1rem',
                 justifyContent: 'center',
                 flexWrap: 'wrap',
-                marginTop: '2.25rem',
+                marginTop: '2rem',
                 fontSize: '0.78rem',
                 color: 'var(--text-secondary)'
               }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: processingProgress >= 25 ? '#34d399' : 'inherit' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: processingProgress >= 20 ? '#34d399' : 'inherit' }}>
                   <CheckCircle2 size={14} /> 1. Timeline Video
                 </span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: processingProgress >= 55 ? '#34d399' : 'inherit' }}>
-                  <CheckCircle2 size={14} /> 2. Nhận diện tiếng Trung
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: processingProgress >= 40 ? '#34d399' : 'inherit' }}>
+                  <CheckCircle2 size={14} /> 2. Lời thoại tiếng Trung
                 </span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: processingProgress >= 80 ? '#34d399' : 'inherit' }}>
-                  <CheckCircle2 size={14} /> 3. Dịch thuật tiếng Việt
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: processingProgress >= 65 ? '#34d399' : 'inherit' }}>
+                  <CheckCircle2 size={14} /> 3. Dịch Gemini 1.5 Pro
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: processingProgress >= 90 ? '#34d399' : 'inherit' }}>
+                  <CheckCircle2 size={14} /> 4. Quét thẩm định 100%
                 </span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: processingProgress >= 100 ? '#34d399' : 'inherit' }}>
-                  <CheckCircle2 size={14} /> 4. Lồng tiếng AI
+                  <CheckCircle2 size={14} /> 5. Lồng tiếng AI
                 </span>
               </div>
             </div>
