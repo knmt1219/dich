@@ -13,8 +13,9 @@ export default defineConfig({
   plugins: [
     react(),
     {
-      name: 'vietnamese-tts-proxy',
+      name: 'bilingual-studio-api-proxy',
       configureServer(server) {
+        // 1. Text-to-Speech Edge Audio Proxy
         server.middlewares.use('/api/tts', (req, res) => {
           const parsedUrl = url.parse(req.url || '', true);
           const text = (parsedUrl.query.text as string) || '';
@@ -26,14 +27,14 @@ export default defineConfig({
           }
 
           const safeText = text.trim().slice(0, 200);
-          const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=vi&client=tw-ob&q=${encodeURIComponent(safeText)}`;
+          const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=vi&client=dict-chrome-ex&q=${encodeURIComponent(safeText)}`;
 
           const ttsReq = https.get(
             ttsUrl,
             {
               headers: {
                 'User-Agent':
-                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                 'Referer': 'https://translate.google.com/',
                 'Accept': '*/*'
               }
@@ -52,6 +53,57 @@ export default defineConfig({
             console.error('Error fetching TTS audio:', err);
             res.statusCode = 500;
             res.end(err.message);
+          });
+        });
+
+        // 2. High-Accuracy Translation Proxy (No CORS block)
+        server.middlewares.use('/api/translate', (req, res) => {
+          const parsedUrl = url.parse(req.url || '', true);
+          const text = (parsedUrl.query.text as string) || '';
+
+          if (!text.trim()) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ translatedText: '' }));
+            return;
+          }
+
+          const cleanText = text.trim();
+          const targetUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=zh-CN&tl=vi&dt=t&q=${encodeURIComponent(cleanText)}`;
+
+          const translateReq = https.get(
+            targetUrl,
+            {
+              headers: {
+                'User-Agent':
+                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Referer': 'https://translate.google.com/'
+              }
+            },
+            (transRes) => {
+              let body = '';
+              transRes.on('data', (chunk) => { body += chunk; });
+              transRes.on('end', () => {
+                try {
+                  const data = JSON.parse(body);
+                  if (Array.isArray(data) && Array.isArray(data[0])) {
+                    const translatedText = data[0].map((item: unknown[]) => item[0]).join('').trim();
+                    res.writeHead(200, {
+                      'Content-Type': 'application/json',
+                      'Access-Control-Allow-Origin': '*'
+                    });
+                    res.end(JSON.stringify({ translatedText }));
+                    return;
+                  }
+                } catch {}
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ translatedText: cleanText }));
+              });
+            }
+          );
+
+          translateReq.on('error', () => {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ translatedText: cleanText }));
           });
         });
       }

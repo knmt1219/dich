@@ -68,11 +68,24 @@ function extractJsonArray(rawText: string): Array<{ id: string; vietnameseText: 
 }
 
 /**
- * Free Google Translate fallback API for 100% uptime
+ * High-Accuracy Edge & Cloud Neural Translation Engine
  */
 async function translateViaGoogleTranslateApi(text: string): Promise<string> {
   const clean = text.trim();
   if (!clean) return '';
+
+  // 1. Try local Vite dev & Cloudflare Pages Edge proxy /api/translate (0 CORS issues)
+  try {
+    const res = await fetch(`/api/translate?text=${encodeURIComponent(clean)}&sl=zh-CN&tl=vi`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.translatedText && data.translatedText.trim() !== '') {
+        return data.translatedText.trim();
+      }
+    }
+  } catch {}
+
+  // 2. Direct Google Translate API fallback
   try {
     const res = await fetch(
       `https://translate.googleapis.com/translate_a/single?client=gtx&sl=zh-CN&tl=vi&dt=t&q=${encodeURIComponent(clean)}`
@@ -84,6 +97,7 @@ async function translateViaGoogleTranslateApi(text: string): Promise<string> {
       }
     }
   } catch {}
+
   return translateOffline(clean);
 }
 
