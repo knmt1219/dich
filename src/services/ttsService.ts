@@ -31,7 +31,7 @@ class TTSService {
     if (this.systemVoices.length === 0 && this.synth) {
       this.systemVoices = this.synth.getVoices();
     }
-    return this.systemVoices.filter(v => v.lang.startsWith('vi') || v.lang.includes('VI'));
+    return this.systemVoices.filter(v => v.lang.startsWith('vi') || v.lang.includes('VI') || v.lang.includes('vi_VN'));
   }
 
   /**
@@ -40,7 +40,6 @@ class TTSService {
   public calculateDynamicRate(text: string, durationSeconds: number, baseRate = 1.0): number {
     if (!durationSeconds || durationSeconds <= 0) return baseRate;
 
-    // Check if we have exact cached audio duration
     const cleanText = text.trim();
     if (this.audioDurationCache.has(cleanText)) {
       const realDur = this.audioDurationCache.get(cleanText)!;
@@ -54,11 +53,9 @@ class TTSService {
 
     // Standard Vietnamese speech: ~3.5 words per second
     const estimatedNormalSeconds = Math.max(0.5, (words / 3.5) + 0.15);
-    const targetSeconds = Math.max(0.4, durationSeconds - 0.1); // finish 100ms before segment ends
+    const targetSeconds = Math.max(0.4, durationSeconds - 0.1);
 
     const requiredRate = (estimatedNormalSeconds / targetSeconds) * baseRate;
-
-    // Scale dynamically between 0.8x and 2.5x
     return Math.min(2.5, Math.max(0.8, Math.round(requiredRate * 100) / 100));
   }
 
@@ -79,7 +76,7 @@ class TTSService {
   }
 
   /**
-   * Speak Vietnamese text with Perfect Duration Synchronization
+   * Speak Vietnamese text with Multi-Tier Fallback (Edge Proxy -> Direct Stream -> Web Speech API)
    */
   public speak(
     text: string,
@@ -103,7 +100,13 @@ class TTSService {
       initialRate = this.calculateDynamicRate(cleanText, segmentDuration, initialRate);
     }
 
-    // Strategy 1: Audio Stream (/api/tts)
+    // Force Web Speech API if user selected system engine
+    if (settings.ttsEngine === 'system') {
+      this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
+      return;
+    }
+
+    // Strategy 1: Edge Audio Proxy (/api/tts via Cloudflare Functions & Vite Dev)
     const audioUrl = this.getAudioUrlForText(cleanText);
     const audio = new Audio(audioUrl);
     this.currentAudio = audio;
@@ -111,12 +114,10 @@ class TTSService {
     audio.volume = Math.min(1.0, Math.max(0.05, settings.dubbingVolume));
     audio.playbackRate = initialRate;
 
-    // Precise synchronization upon audio metadata loaded
     const applyPreciseSpeed = () => {
       if (audio.duration && !isNaN(audio.duration) && audio.duration > 0) {
         this.audioDurationCache.set(cleanText, audio.duration);
         if (settings.autoSpeedSync && segmentDuration && segmentDuration > 0) {
-          // Precise target duration: segmentDuration - 0.1s safe pause
           const targetSeconds = Math.max(0.4, segmentDuration - 0.1);
           const exactRate = (audio.duration / targetSeconds) * (settings.speechRate || 1.0);
           audio.playbackRate = Math.min(2.5, Math.max(0.75, Math.round(exactRate * 100) / 100));
@@ -144,51 +145,17 @@ class TTSService {
     };
 
     audio.onerror = () => {
-      // Fallback: Direct Google Translate TTS endpoint
-      const directUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=vi&client=tw-ob&q=${encodeURIComponent(cleanText.slice(0, 180))}`;
-      const fallbackAudio = new Audio(directUrl);
-      this.currentAudio = fallbackAudio;
-      fallbackAudio.volume = audio.volume;
-      fallbackAudio.playbackRate = initialRate;
-
-      fallbackAudio.onloadedmetadata = () => {
-        if (fallbackAudio.duration && !isNaN(fallbackAudio.duration) && fallbackAudio.duration > 0) {
-          this.audioDurationCache.set(cleanText, fallbackAudio.duration);
-          if (settings.autoSpeedSync && segmentDuration && segmentDuration > 0) {
-            const targetSeconds = Math.max(0.4, segmentDuration - 0.1);
-            const exactRate = (fallbackAudio.duration / targetSeconds) * (settings.speechRate || 1.0);
-            fallbackAudio.playbackRate = Math.min(2.5, Math.max(0.75, Math.round(exactRate * 100) / 100));
-          }
-        }
-      };
-
-      fallbackAudio.onplay = () => {
-        started = true;
-        this.isSpeaking = true;
-        onStart?.();
-      };
-
-      fallbackAudio.onended = () => {
-        this.isSpeaking = false;
-        this.currentAudio = null;
-        onEnd?.();
-      };
-
-      fallbackAudio.onerror = () => {
-        this.currentAudio = null;
-        this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
-      };
-
-      fallbackAudio.play().catch(() => {
-        this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
-      });
+      // Fallback Strategy 2: Web Speech API (100% reliable on all browsers / Cloudflare Pages)
+      this.currentAudio = null;
+      this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
     };
 
     const playPromise = audio.play();
     if (playPromise !== undefined) {
       playPromise.catch((err) => {
-        console.warn('Audio play exception:', err);
+        console.warn('Audio stream error, falling back to Web Speech API:', err);
         if (!started) {
+          this.currentAudio = null;
           this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
         }
       });
@@ -196,7 +163,7 @@ class TTSService {
   }
 
   /**
-   * Web Speech API fallback with duration scaling
+   * Web Speech API fallback with duration scaling and voice styling
    */
   private speakWebSpeech(
     text: string,
@@ -213,6 +180,10 @@ class TTSService {
 
     try {
       this.synth.cancel();
+      if (this.synth.paused) {
+        this.synth.resume();
+      }
+
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'vi-VN';
 
@@ -221,16 +192,24 @@ class TTSService {
         effectiveRate = this.calculateDynamicRate(text, segmentDuration, effectiveRate);
       }
 
+      // Voice pitch customization
+      let basePitch = settings.pitch || 1.0;
+      if (voiceConfig.id === 'vi-story-male') {
+        basePitch = 0.9; // deeper dramatic pitch
+      } else if (voiceConfig.id === 'vi-youth-female') {
+        basePitch = 1.15; // brighter Gen Z pitch
+      }
+
       utterance.rate = Math.min(2.0, Math.max(0.75, effectiveRate));
-      utterance.pitch = Math.min(1.3, Math.max(0.8, settings.pitch || 1.0));
+      utterance.pitch = Math.min(1.3, Math.max(0.8, basePitch));
       utterance.volume = Math.min(1.0, Math.max(0.1, settings.dubbingVolume || 1.0));
 
       const viVoices = this.getAvailableSystemVoices();
       if (viVoices.length > 0) {
         const matched = viVoices.find(v =>
           voiceConfig.gender === 'female'
-            ? v.name.toLowerCase().includes('female') || v.name.toLowerCase().includes('nữ') || v.name.toLowerCase().includes('hoaimy') || v.name.toLowerCase().includes('mai')
-            : v.name.toLowerCase().includes('male') || v.name.toLowerCase().includes('nam') || v.name.toLowerCase().includes('namminh')
+            ? v.name.toLowerCase().includes('female') || v.name.toLowerCase().includes('nữ') || v.name.toLowerCase().includes('hoaimy') || v.name.toLowerCase().includes('mai') || v.name.toLowerCase().includes('linh')
+            : v.name.toLowerCase().includes('male') || v.name.toLowerCase().includes('nam') || v.name.toLowerCase().includes('namminh') || v.name.toLowerCase().includes('minh')
         ) || viVoices[0];
         if (matched) utterance.voice = matched;
       }
