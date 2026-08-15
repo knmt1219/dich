@@ -5,6 +5,11 @@ import url from 'url';
 
 // https://vite.dev/config/
 export default defineConfig({
+  server: {
+    open: true,
+    host: true,
+    port: 5173
+  },
   plugins: [
     react(),
     {
