@@ -37,9 +37,7 @@ import { SubtitleStylePanel } from './components/SubtitleStylePanel';
 import { VoiceDubbingPanel } from './components/VoiceDubbingPanel';
 import { ExportModal } from './components/ExportModal';
 import { ApiKeyModal } from './components/ApiKeyModal';
-import { HowItWorks } from './components/HowItWorks';
 import { FeatureGrid } from './components/FeatureGrid';
-import { FaqSection } from './components/FaqSection';
 import { Footer } from './components/Footer';
 
 export const App: React.FC = () => {
@@ -777,15 +775,10 @@ export const App: React.FC = () => {
       }} />
 
       {/* 7. How it works 3-steps Section */}
-      <HowItWorks />
-
       {/* 8. Features Grid Section */}
       <FeatureGrid />
 
-      {/* 9. FAQ Section */}
-      <FaqSection />
-
-      {/* 10. Footer */}
+      {/* 9. Footer */}
       <Footer />
 
       {/* Floating Toast Notification */}

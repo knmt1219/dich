@@ -61,7 +61,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (active.id !== lastSpokenSubIdRef.current) {
         lastSpokenSubIdRef.current = active.id;
         
-        const voice = VIETNAMESE_VOICES.find((v) => v.id === dubbing.selectedVoiceId) || VIETNAMESE_VOICES[0];
+        let voice = VIETNAMESE_VOICES.find((v) => v.id === dubbing.selectedVoiceId) || VIETNAMESE_VOICES[0];
+        
+        // Auto character gender matching (Bố -> Nam, Mẹ -> Nữ)
+        const isMale = active.voiceGender === 'male' || /^(\s*[-*•]?\s*)(bố|nam|anh|ông|con trai|chú|bác trai)\s*[:：]/i.test(active.vietnameseText);
+        const isFemale = active.voiceGender === 'female' || /^(\s*[-*•]?\s*)(mẹ|nữ|chị|bà|cô|bác gái|loa)\s*[:：]/i.test(active.vietnameseText);
+        
+        if (isMale) {
+          voice = VIETNAMESE_VOICES.find((v) => v.gender === 'male') || voice;
+        } else if (isFemale) {
+          voice = VIETNAMESE_VOICES.find((v) => v.gender === 'female') || voice;
+        }
+
         const segmentDuration = Math.max(0.5, active.endTime - active.startTime);
 
         // Duck original video volume
