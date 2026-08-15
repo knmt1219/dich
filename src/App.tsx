@@ -17,7 +17,7 @@ import type {
   SampleVideo
 } from './types/video';
 
-import { SAMPLE_CHINESE_VIDEOS, VIETNAMESE_VOICES } from './mockData/sampleVideos';
+import { VIETNAMESE_VOICES } from './mockData/sampleVideos';
 import {
   transcribeChineseVideo,
   batchTranslateWithGemini,
@@ -40,13 +40,13 @@ import { FaqSection } from './components/FaqSection';
 import { Footer } from './components/Footer';
 
 export const App: React.FC = () => {
-  // Video State
-  const [videoUrl, setVideoUrl] = useState<string | null>(SAMPLE_CHINESE_VIDEOS[0].videoUrl);
-  const [videoDuration, setVideoDuration] = useState<number>(SAMPLE_CHINESE_VIDEOS[0].duration);
+  // Video State (Starts empty until user uploads or selects a video)
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [videoDuration, setVideoDuration] = useState<number>(0);
   const [currentTime, setCurrentTime] = useState<number>(0);
 
   // Subtitles & AI State
-  const [subtitles, setSubtitles] = useState<SubtitleSegment[]>(SAMPLE_CHINESE_VIDEOS[0].subtitles);
+  const [subtitles, setSubtitles] = useState<SubtitleSegment[]>([]);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
   const [translationTone, setTranslationTone] = useState<TranslationTone>('natural');
   const [geminiModel, setGeminiModel] = useState<GeminiModel>('gemini-1.5-pro');
@@ -270,30 +270,32 @@ export const App: React.FC = () => {
               </h2>
             </div>
 
-            <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap' }}>
-              <button
-                onClick={handleScrollToUploader}
-                className="btn-secondary"
-                style={{ fontSize: '0.8rem', padding: '0.5rem 0.85rem' }}
-              >
-                <UploadCloud size={15} />
-                <span>Chọn Video Khác Ở Trên</span>
-              </button>
+            {videoUrl && (
+              <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap' }}>
+                <button
+                  onClick={handleScrollToUploader}
+                  className="btn-secondary"
+                  style={{ fontSize: '0.8rem', padding: '0.5rem 0.85rem' }}
+                >
+                  <UploadCloud size={15} />
+                  <span>Chọn Video Khác Ở Trên</span>
+                </button>
 
-              <button
-                onClick={() => setIsExportModalOpen(true)}
-                className="btn-primary"
-                style={{
-                  backgroundColor: '#10b981',
-                  borderColor: 'rgba(255, 255, 255, 0.2)',
-                  fontSize: '0.85rem',
-                  padding: '0.55rem 1.25rem'
-                }}
-              >
-                <Download size={16} />
-                <span>Xuất File / Tải Về</span>
-              </button>
-            </div>
+                <button
+                  onClick={() => setIsExportModalOpen(true)}
+                  className="btn-primary"
+                  style={{
+                    backgroundColor: '#10b981',
+                    borderColor: 'rgba(255, 255, 255, 0.2)',
+                    fontSize: '0.85rem',
+                    padding: '0.55rem 1.25rem'
+                  }}
+                >
+                  <Download size={16} />
+                  <span>Xuất File / Tải Về</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* AI Processing Overlay */}
@@ -333,7 +335,59 @@ export const App: React.FC = () => {
           )}
 
           {/* Synchronized Equal-Height Split Workspace (Bound strictly to ~600px height) */}
-          {videoUrl && (
+          {!videoUrl ? (
+            <div style={{
+              backgroundColor: 'var(--bg-card)',
+              border: '2px dashed var(--border-active)',
+              borderRadius: 'var(--radius-xl)',
+              padding: '4.5rem 2rem',
+              textAlign: 'center',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '1.25rem',
+              boxShadow: 'var(--shadow-md)'
+            }}>
+              <div style={{
+                width: '76px',
+                height: '76px',
+                borderRadius: '50%',
+                backgroundColor: 'rgba(37, 99, 235, 0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                border: '1px solid rgba(59, 130, 246, 0.3)',
+                boxShadow: '0 0 30px rgba(37, 99, 235, 0.25)'
+              }}>
+                <UploadCloud size={38} color="#60a5fa" />
+              </div>
+              <div>
+                <h3 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#ffffff', marginBottom: '0.45rem' }}>
+                  Chưa Có Video Nào Được Tải Lên
+                </h3>
+                <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', maxWidth: '540px', margin: '0 auto', lineHeight: 1.55 }}>
+                  Vui lòng tải lên video tiếng Trung của bạn (MP4 / WebM) hoặc dán link / chọn mẫu demo ở phần trên. AI sẽ tự động phân tích và tạo phụ đề lồng tiếng dành riêng cho video đó!
+                </p>
+              </div>
+              <button
+                onClick={handleScrollToUploader}
+                className="btn-primary"
+                style={{
+                  backgroundColor: '#2563eb',
+                  padding: '0.75rem 1.85rem',
+                  fontSize: '0.925rem',
+                  fontWeight: 700,
+                  gap: '0.5rem',
+                  boxShadow: '0 4px 18px rgba(37, 99, 235, 0.45)',
+                  cursor: 'pointer'
+                }}
+              >
+                <UploadCloud size={17} />
+                <span>⬆️ Tải Video Hoặc Chọn Mẫu Ngay</span>
+              </button>
+            </div>
+          ) : (
             <div style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))',
