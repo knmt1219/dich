@@ -164,26 +164,43 @@ class TTSService {
       return;
     }
 
-    // 2. Try fetching from Cloud TTS endpoint
+    // 2. Try fetching from Cloud TTS endpoint with 300ms fast fallback race
     const safeText = cleanText.slice(0, 200);
     const cloudUrl = `/api/tts?text=${encodeURIComponent(safeText)}`;
     
-    // Quick test fetch to create Blob
+    let isHandled = false;
+    const fetchTimer = setTimeout(() => {
+      if (!isHandled) {
+        isHandled = true;
+        this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
+      }
+    }, 300);
+
     fetch(cloudUrl)
       .then(async (res) => {
         if (res.ok) {
           const blob = await res.blob();
           const blobUrl = URL.createObjectURL(blob);
           this.audioBlobCache.set(cleanText, blobUrl);
-          this.playAudioUrl(blobUrl, cleanText, initialRate, settings, voiceConfig, onStart, onEnd, segmentDuration);
+          if (!isHandled) {
+            clearTimeout(fetchTimer);
+            isHandled = true;
+            this.playAudioUrl(blobUrl, cleanText, initialRate, settings, voiceConfig, onStart, onEnd, segmentDuration);
+          }
         } else {
-          // Fallback to Web Speech API
-          this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
+          if (!isHandled) {
+            clearTimeout(fetchTimer);
+            isHandled = true;
+            this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
+          }
         }
       })
       .catch(() => {
-        // Fallback to Web Speech API immediately on network error
-        this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
+        if (!isHandled) {
+          clearTimeout(fetchTimer);
+          isHandled = true;
+          this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
+        }
       });
   }
 

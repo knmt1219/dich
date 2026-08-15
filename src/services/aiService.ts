@@ -150,8 +150,8 @@ async function translateViaGoogleTranslateApi(text: string): Promise<string> {
     const res = await fetch(`/api/translate?text=${encodeURIComponent(clean)}&sl=zh-CN&tl=vi`);
     if (res.ok) {
       const data = await res.json();
-      if (data && data.translation) {
-        return data.translation.trim();
+      if (data && (data.translatedText || data.translation)) {
+        return (data.translatedText || data.translation).trim();
       }
     }
   } catch {}
@@ -362,9 +362,8 @@ export async function extractAudioTrackBase64(file: File): Promise<{ base64: str
       mimeType: 'audio/wav'
     };
   } catch (err) {
-    console.warn('AudioContext decode failed, falling back to slice:', err);
-    const slice = file.slice(0, 8 * 1024 * 1024);
-    const buffer = await slice.arrayBuffer();
+    console.warn('AudioContext decode failed, using full file buffer:', err);
+    const buffer = await file.arrayBuffer();
     const bytes = new Uint8Array(buffer);
     let binary = '';
     const chunkSize = 0x8000;
@@ -452,9 +451,10 @@ BẮT BUỘC trả về ĐÚNG định dạng JSON array sau (JSON thuần túy,
       const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!rawText) continue;
 
+      let segments: SubtitleSegment[] = [];
       const parsed = extractJsonArray(rawText);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        const segments: SubtitleSegment[] = parsed.map((item: any, idx: number) => ({
+        segments = parsed.map((item: any, idx: number) => ({
           id: `real-sub-${Date.now()}-${idx}`,
           startTime: typeof item.startTime === 'number' ? Math.round(item.startTime * 10) / 10 : idx * 3.5,
           endTime: typeof item.endTime === 'number' ? Math.round(item.endTime * 10) / 10 : (idx + 1) * 3.5,
@@ -463,10 +463,18 @@ BẮT BUỘC trả về ĐÚNG định dạng JSON array sau (JSON thuần túy,
           vietnameseText: item.vietnameseText || item.vietnamese || '',
           voiceGender: ((idx % 2 === 0 ? 'female' : 'male') as 'female' | 'male')
         })).filter(s => (s.chineseText && s.chineseText.trim() !== '') || (s.vietnameseText && s.vietnameseText.trim() !== ''));
+      }
 
-        if (segments.length > 0) {
-          return segments;
+      // If JSON format is empty, parse rich transcript lines (Bố: ..., Mẹ: ...)
+      if (segments.length === 0) {
+        const fromTranscript = parseAnyTranscriptText(rawText);
+        if (fromTranscript.length > 0) {
+          segments = fromTranscript;
         }
+      }
+
+      if (segments.length > 0) {
+        return segments;
       }
     } catch (err) {
       console.warn(`Error in multimodal transcription with ${m}:`, err);
