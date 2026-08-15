@@ -393,22 +393,22 @@ export async function transcribeAndTranslateWithGeminiMultimodal(
 
   onProgress?.(50, `Gemini Multimodal (${model.toUpperCase()}) đang lắng nghe và bóc băng lời thoại video...`);
 
-  const prompt = `Bạn là chuyên gia thẩm âm, nhận diện giọng nói tiếng Trung (Mandarin Speech Recognition) và biên dịch phụ đề Trung - Việt cao cấp.
+  const prompt = `Bạn là hệ thống AI bóc băng và dịch thuật video cao cấp hàng đầu thế giới (tiêu chuẩn Gemini Web).
 Nhiệm vụ:
-1. LẮNG NGHE KỸ từng câu thoại người trong video ĐANG THỰC SỰ NÓI.
-2. Trích xuất chính xác 100% từng câu tiếng Trung gốc (chineseText).
-3. Ghi rõ mốc thời gian bắt đầu (startTime) và kết thúc (endTime) tính bằng giây.
+1. LẮNG NGHE KỸ giọng nói của TẤT CẢ nhân vật trong file âm thanh này (bao gồm cả lời thoại nhân vật, người dẫn chuyện, tiếng loa và âm thanh nền).
+2. Bóc băng CHÍNH XÁC 100% từng câu tiếng Trung gốc (chineseText).
+3. Ghi rõ mốc thời gian bắt đầu (startTime tính bằng giây) và kết thúc (endTime tính bằng giây) chính xác theo giọng nói.
 4. Tạo phiên âm Pinyin chuẩn có dấu thanh điệu (pinyin).
-5. Dịch từng câu thoại tiếng Trung đó sang tiếng Việt tự nhiên, chuẩn ngữ cảnh, thuần Việt, xưng hô phù hợp (phong cách: ${tone}).
+5. Dịch từng câu sang tiếng Việt tự nhiên, giàu cảm xúc, chuẩn ngữ cảnh đời sống/phim ảnh, phân biệt rõ nhân vật xưng hô (Bố, Mẹ, Con, Người dẫn chuyện, v.v.), thuần Việt 100% giống hệt bản dịch của Gemini trên Web (phong cách: ${tone}).
 
-BẮT BUỘC trả về ĐÚNG định dạng JSON array sau, không kèm bất kỳ giải thích nào:
+BẮT BUỘC trả về ĐÚNG định dạng JSON array sau (JSON thuần túy, không có văn bản giải thích thừa):
 [
   {
     "startTime": 0.0,
-    "endTime": 3.2,
-    "chineseText": "câu thoại tiếng Trung thực tế được nói trong video",
-    "pinyin": "phiên âm pinyin",
-    "vietnameseText": "câu dịch tiếng Việt chuẩn xác"
+    "endTime": 2.5,
+    "chineseText": "你看看人家孩子，再看看你自己。",
+    "pinyin": "Nǐ kànkan rénjia háizi, zài kànkan nǐ zìjǐ.",
+    "vietnameseText": "Bố: Con nhìn con nhà người ta xem, rồi con tự nhìn lại mình đi."
   }
 ]`;
 
