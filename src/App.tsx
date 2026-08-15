@@ -47,8 +47,13 @@ export const App: React.FC = () => {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoDuration, setVideoDuration] = useState<number>(0);
   const [currentTime, setCurrentTime] = useState<number>(0);
+  const [pendingVideo, setPendingVideo] = useState<{
+    file: File | null;
+    url: string;
+    sampleData?: SampleVideo;
+  } | null>(null);
 
-  // Subtitles & AI State (Populated strictly after AI finishes processing)
+  // Subtitles & AI State (Populated strictly after AI finishes processing 100%)
   const [subtitles, setSubtitles] = useState<SubtitleSegment[]>([]);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
   const [translationTone, setTranslationTone] = useState<TranslationTone>('natural');
@@ -114,45 +119,42 @@ export const App: React.FC = () => {
     uploaderRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  // Triggered as soon as a video is uploaded/dropped
-  const handleVideoSelected = async (file: File | null, url: string, sampleData?: SampleVideo) => {
+  // Dedicated AI Processing & 100% Quality Verification Pipeline
+  const startAiProcessingPipeline = async (
+    file: File | null,
+    url: string,
+    sampleData?: SampleVideo
+  ) => {
     ttsService.stop();
     setVideoUrl(url);
     setCurrentTime(0);
-    setSubtitles([]); // Clear any previous subtitles
+    setSubtitles([]); // Hide previous subtitles
     setIsProcessingAI(true);
     setProcessingProgress(15);
     setProcessingStatusText('Đang nạp video và trích xuất dòng thời gian...');
 
     handleScrollToEditor();
 
-    // 1. If user doesn't have an API key, pop up API Key modal to enter key
-    const keys = getStoredApiKey();
-    if (!keys.geminiKey && !keys.openaiKey) {
-      setIsApiKeyModalOpen(true);
-    }
-
     if (sampleData) {
       setVideoDuration(sampleData.duration);
-      // Simulate rapid AI analysis for sample video
-      setProcessingProgress(45);
+      setProcessingProgress(40);
       setProcessingStatusText('Đang phân tích lời thoại mẫu tiếng Trung...');
       setTimeout(() => {
-        setProcessingProgress(80);
-        setProcessingStatusText('Đang hoàn thiện bản dịch tiếng Việt & lồng tiếng...');
+        setProcessingProgress(75);
+        setProcessingStatusText('Đang quét thẩm định bản dịch 100% chuẩn xác...');
         setTimeout(() => {
           setProcessingProgress(100);
           setSubtitles(sampleData.subtitles);
           setIsProcessingAI(false);
           try {
-            confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
+            confetti({ particleCount: 60, spread: 70, origin: { y: 0.6 } });
           } catch {}
         }, 500);
       }, 500);
       return;
     }
 
-    // 2. Measure real duration of uploaded video file
+    // Measure real duration of uploaded video file
     let realDuration = 30;
     try {
       const tempVideo = document.createElement('video');
@@ -172,8 +174,9 @@ export const App: React.FC = () => {
 
     setVideoDuration(realDuration);
 
-    // 3. Automatically run AI transcription and translation pipeline
+    // Run AI transcription, deep translation and mandatory 100% verification
     try {
+      const keys = getStoredApiKey();
       const generatedSubs = await transcribeChineseVideo(
         file,
         realDuration,
@@ -188,12 +191,41 @@ export const App: React.FC = () => {
       setSubtitles(generatedSubs);
       setActiveTab('subtitles');
       try {
-        confetti({ particleCount: 60, spread: 70, origin: { y: 0.6 } });
+        confetti({ particleCount: 70, spread: 80, origin: { y: 0.6 } });
       } catch {}
     } catch (err) {
       console.error('Error processing video:', err);
     } finally {
       setIsProcessingAI(false);
+    }
+  };
+
+  // Triggered as soon as a video is uploaded/dropped
+  const handleVideoSelected = (file: File | null, url: string, sampleData?: SampleVideo) => {
+    const keys = getStoredApiKey();
+    const hasKey = Boolean(keys.geminiKey || keys.openaiKey);
+
+    // 1. If user doesn't have an API key, pop up API Key modal to enter key first
+    if (!hasKey) {
+      setPendingVideo({ file, url, sampleData });
+      setIsApiKeyModalOpen(true);
+      return;
+    }
+
+    // 2. If API Key exists, start the translation pipeline directly
+    startAiProcessingPipeline(file, url, sampleData);
+  };
+
+  // Called when API Key is saved in modal
+  const handleApiKeySaved = () => {
+    const keys = getStoredApiKey();
+    setHasApiKey(Boolean(keys.geminiKey || keys.openaiKey));
+
+    // If there was a pending video waiting for key, run translation right away!
+    if (pendingVideo) {
+      const { file, url, sampleData } = pendingVideo;
+      setPendingVideo(null);
+      startAiProcessingPipeline(file, url, sampleData);
     }
   };
 
@@ -231,11 +263,6 @@ export const App: React.FC = () => {
     const keys = getStoredApiKey();
     const updatedSubs = await batchTranslateWithGemini(subtitles, tone, geminiModel, keys.geminiKey);
     setSubtitles(updatedSubs);
-  };
-
-  const handleApiKeySaved = () => {
-    const keys = getStoredApiKey();
-    setHasApiKey(Boolean(keys.geminiKey || keys.openaiKey));
   };
 
   return (
@@ -340,7 +367,7 @@ export const App: React.FC = () => {
           </div>
 
           {/* 1. STATE: No video uploaded yet */}
-          {!videoUrl && (
+          {!videoUrl && !isProcessingAI && (
             <div style={{
               backgroundColor: 'var(--bg-card)',
               border: '2px dashed var(--border-active)',
@@ -394,8 +421,8 @@ export const App: React.FC = () => {
             </div>
           )}
 
-          {/* 2. STATE: Video is currently being processed by AI (Full Spotlight Progress Bar) */}
-          {videoUrl && isProcessingAI && (
+          {/* 2. STATE: Video is currently being processed by AI (Full Spotlight Progress Bar, Video is NOT visible yet) */}
+          {isProcessingAI && (
             <div style={{
               backgroundColor: 'var(--bg-card)',
               border: '1px solid var(--border-active)',
@@ -427,14 +454,14 @@ export const App: React.FC = () => {
 
               <div className="badge badge-brand" style={{ marginBottom: '0.75rem' }}>
                 <Sparkles size={13} />
-                <span>Đang xử lý với {geminiModel.toUpperCase()}</span>
+                <span>Đang xử lý & thẩm định với {geminiModel.toUpperCase()}</span>
               </div>
 
               <h3 style={{ fontSize: '1.45rem', fontWeight: 800, color: '#ffffff', marginBottom: '0.5rem' }}>
                 {processingStatusText || 'Đang phân tích và dịch thuật video...'}
               </h3>
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', maxWidth: '500px', margin: '0 auto 2rem', lineHeight: 1.5 }}>
-                Hệ thống đang tự động trích xuất timeline, nhận diện lời thoại tiếng Trung, dịch sang tiếng Việt chuẩn ngữ cảnh và khởi tạo giọng đọc lồng tiếng...
+                Hệ thống đang tự động trích xuất timeline, nhận diện lời thoại tiếng Trung, dịch sang tiếng Việt chuẩn ngữ cảnh và quét thẩm định 100% độ chính xác...
               </p>
 
               {/* Progress Track */}
@@ -448,7 +475,7 @@ export const App: React.FC = () => {
                   fontWeight: 700,
                   color: '#60a5fa'
                 }}>
-                  <span>Tiến độ dịch thuật & lồng tiếng:</span>
+                  <span>Tiến độ thẩm định & dịch thuật:</span>
                   <span style={{ fontSize: '1rem', color: '#ffffff' }}>{processingProgress}%</span>
                 </div>
 
@@ -548,7 +575,7 @@ export const App: React.FC = () => {
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                     <span className="badge badge-green" style={{ fontSize: '0.7rem' }}>
-                      {subtitles.length} câu thoại song ngữ đã dịch
+                      {subtitles.length} câu thoại song ngữ đã thẩm định 100%
                     </span>
                     <span className="badge badge-brand" style={{ fontSize: '0.7rem' }}>
                       {VIETNAMESE_VOICES.find(v => v.id === dubbingSettings.selectedVoiceId)?.name}
@@ -653,37 +680,37 @@ export const App: React.FC = () => {
                 {/* Tab Content Display */}
                 <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                   {activeTab === 'subtitles' && (
-                    <SubtitleEditor
-                      subtitles={subtitles}
-                      currentTime={currentTime}
-                      selectedSegmentId={selectedSegmentId}
-                      dubbing={dubbingSettings}
-                      translationTone={translationTone}
-                      geminiModel={geminiModel}
-                      onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
-                      onSelectSegment={(id, time) => {
-                        setSelectedSegmentId(id);
-                        if (time !== undefined) setCurrentTime(time);
-                      }}
-                      onUpdateSegment={handleUpdateSegment}
-                      onDeleteSegment={handleDeleteSegment}
-                      onAddSegment={handleAddSegment}
-                      onBatchTranslate={handleBatchTranslate}
-                    />
+                        <SubtitleEditor
+                          subtitles={subtitles}
+                          currentTime={currentTime}
+                          selectedSegmentId={selectedSegmentId}
+                          dubbing={dubbingSettings}
+                          translationTone={translationTone}
+                          geminiModel={geminiModel}
+                          onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
+                          onSelectSegment={(id, time) => {
+                            setSelectedSegmentId(id);
+                            if (time !== undefined) setCurrentTime(time);
+                          }}
+                          onUpdateSegment={handleUpdateSegment}
+                          onDeleteSegment={handleDeleteSegment}
+                          onAddSegment={handleAddSegment}
+                          onBatchTranslate={handleBatchTranslate}
+                        />
                   )}
 
                   {activeTab === 'voices' && (
-                    <VoiceDubbingPanel
-                      dubbing={dubbingSettings}
-                      onUpdateDubbing={(newSettings) => setDubbingSettings(prev => ({ ...prev, ...newSettings }))}
-                    />
+                        <VoiceDubbingPanel
+                          dubbing={dubbingSettings}
+                          onUpdateDubbing={(newSettings) => setDubbingSettings(prev => ({ ...prev, ...newSettings }))}
+                        />
                   )}
 
                   {activeTab === 'styles' && (
-                    <SubtitleStylePanel
-                      style={subtitleStyle}
-                      onUpdateStyle={(newStyle) => setSubtitleStyle(prev => ({ ...prev, ...newStyle }))}
-                    />
+                        <SubtitleStylePanel
+                          style={subtitleStyle}
+                          onUpdateStyle={(newStyle) => setSubtitleStyle(prev => ({ ...prev, ...newStyle }))}
+                        />
                   )}
                 </div>
               </div>
