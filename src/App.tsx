@@ -266,7 +266,7 @@ export const App: React.FC = () => {
   const handleBatchTranslate = async (tone: TranslationTone) => {
     setTranslationTone(tone);
     const keys = getStoredApiKey();
-    const updatedSubs = await batchTranslateWithGemini(subtitles, tone, geminiModel, keys.geminiKey);
+    const updatedSubs = await batchTranslateWithGemini(subtitles, tone, keys.geminiKey, geminiModel);
     setSubtitles(updatedSubs);
     showToast('✅ Đã cập nhật bản dịch mới!');
   };

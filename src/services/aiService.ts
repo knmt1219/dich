@@ -183,57 +183,78 @@ Chỉ trả về duy nhất câu dịch tiếng Việt.`;
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 256 }
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 256
+          }
         })
       }
     );
-    if (res.ok) {
-      const data = await res.json();
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-      if (text) return text.replace(/^"|"$/g, '');
+
+    if (!res.ok) {
+      return await translateViaGoogleTranslateApi(clean);
     }
-  } catch {}
+
+    const data = await res.json();
+    const result = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (result) return result;
+  } catch {
+    return await translateViaGoogleTranslateApi(clean);
+  }
 
   return await translateViaGoogleTranslateApi(clean);
 }
 
 /**
- * Batch translation with Gemini
+ * Batch Translation of Subtitle Segments with Strict Consistency
  */
-export async function batchTranslateWithGemini(
+export async function translateSubtitlesBatchWithGemini(
   subtitles: SubtitleSegment[],
   tone: TranslationTone = 'natural',
+  geminiKey: string,
   model: GeminiModel = 'gemini-1.5-pro',
-  geminiKey?: string
+  onProgress?: (progress: number, status: string) => void
 ): Promise<SubtitleSegment[]> {
-  const key = geminiKey || getStoredApiKey().geminiKey;
-  if (!key || subtitles.length === 0) return subtitles;
+  const needsTranslation = subtitles.filter(
+    (s) => !s.vietnameseText || s.vietnameseText === s.chineseText || s.vietnameseText.trim() === ''
+  );
 
-  const payload = subtitles.map(s => ({
+  if (needsTranslation.length === 0) return subtitles;
+
+  onProgress?.(20, `Đang dịch ${needsTranslation.length} câu phụ đề với ${model.toUpperCase()}...`);
+
+  const prompt = `Bạn là biên dịch viên cao cấp chuyên ngữ Trung - Việt.
+Dịch danh sách các câu tiếng Trung sau sang tiếng Việt tự nhiên, mượt mà, chuẩn ngữ cảnh đời sống/phim ảnh, thuần Việt (phong cách: ${tone}).
+
+Dữ liệu đầu vào:
+${JSON.stringify(
+  needsTranslation.map((s) => ({
     id: s.id,
-    chinese: s.chineseText
-  }));
+    chineseText: s.chineseText,
+    pinyin: s.pinyin || ''
+  }))
+)}
 
-  const prompt = `Bạn là chuyên gia dịch thuật phụ đề Trung - Việt.
-Dịch toàn bộ danh sách các câu thoại tiếng Trung sau sang tiếng Việt chuẩn xác, tự nhiên, thuần Việt (phong cách: ${tone}).
-
-Danh sách:
-${JSON.stringify(payload, null, 2)}
-
-BẮT BUỘC trả về định dạng JSON array:
+BẮT BUỘC trả về ĐÚNG định dạng JSON array sau (JSON thuần túy, không có văn bản giải thích thừa):
 [
-  { "id": "...", "vietnameseText": "câu dịch tiếng Việt" }
+  {
+    "id": "id_goc",
+    "vietnameseText": "bản dịch tiếng Việt tự nhiên và chuẩn ngữ cảnh"
+  }
 ]`;
 
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 4096 }
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 8192
+          }
         })
       }
     );
@@ -241,26 +262,51 @@ BẮT BUỘC trả về định dạng JSON array:
     if (res.ok) {
       const data = await res.json();
       const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (rawText) {
-        const parsed = extractJsonArray(rawText);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const map = new Map<string, string>();
-          parsed.forEach((p: any) => {
-            if (p.id && p.vietnameseText) map.set(p.id, p.vietnameseText);
-          });
-          return subtitles.map(s => ({
-            ...s,
-            vietnameseText: map.get(s.id) || s.vietnameseText
-          }));
-        }
+      const parsed = extractJsonArray(rawText);
+
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const transMap = new Map<string, string>();
+        parsed.forEach((item: any) => {
+          if (item.id && item.vietnameseText) {
+            transMap.set(item.id, item.vietnameseText);
+          }
+        });
+
+        return subtitles.map((sub) => {
+          if (transMap.has(sub.id)) {
+            return { ...sub, vietnameseText: transMap.get(sub.id)! };
+          }
+          return sub;
+        });
       }
     }
   } catch (err) {
-    console.warn('Batch translation with Gemini failed:', err);
+    console.warn('Batch translation error:', err);
   }
 
-  return subtitles;
+  // Fallback to single translations
+  const results: SubtitleSegment[] = [];
+  for (let i = 0; i < subtitles.length; i++) {
+    const sub = subtitles[i];
+    onProgress?.(20 + Math.round((i / subtitles.length) * 70), `Đang dịch câu #${i + 1}/${subtitles.length}...`);
+    if (!sub.vietnameseText || sub.vietnameseText === sub.chineseText) {
+      let vi = '';
+      if (geminiKey) {
+        vi = await translateSingleSegmentWithGemini(sub.chineseText, tone, geminiKey, model);
+      }
+      if (!vi) {
+        vi = await translateViaGoogleTranslateApi(sub.chineseText);
+      }
+      results.push({ ...sub, vietnameseText: vi || sub.chineseText });
+    } else {
+      results.push(sub);
+    }
+  }
+
+  return results;
 }
+
+export const batchTranslateWithGemini = translateSubtitlesBatchWithGemini;
 
 /**
  * 100% Quality Verification Loop
@@ -299,9 +345,90 @@ export async function verifyAndRefineAllTranslations(
 }
 
 /**
- * Extract 16kHz Mono WAV audio track directly from video file via Web Audio API
+ * In-browser Video Audio Extractor via MediaRecorder (Fast & Light)
+ */
+async function extractAudioViaMediaRecorder(file: File): Promise<{ base64: string; mimeType: string }> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.preload = 'auto';
+    video.src = URL.createObjectURL(file);
+    video.muted = false;
+    video.volume = 0.001; // Silent playback
+
+    video.onloadedmetadata = () => {
+      try {
+        const stream = (video as any).captureStream ? (video as any).captureStream() : (video as any).mozCaptureStream ? (video as any).mozCaptureStream() : null;
+        if (!stream) {
+          URL.revokeObjectURL(video.src);
+          reject(new Error('captureStream not supported'));
+          return;
+        }
+
+        const audioTracks = stream.getAudioTracks();
+        if (!audioTracks || audioTracks.length === 0) {
+          URL.revokeObjectURL(video.src);
+          reject(new Error('No audio tracks in video'));
+          return;
+        }
+
+        const audioStream = new MediaStream(audioTracks);
+        const mimeType = typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+        const recorder = new MediaRecorder(audioStream, { mimeType, audioBitsPerSecond: 32000 });
+        const chunks: Blob[] = [];
+
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) chunks.push(e.data);
+        };
+
+        recorder.onstop = () => {
+          const blob = new Blob(chunks, { type: 'audio/webm' });
+          URL.revokeObjectURL(video.src);
+
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const result = reader.result as string;
+            const base64 = result.split(',')[1];
+            resolve({
+              base64,
+              mimeType: 'audio/webm'
+            });
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        };
+
+        recorder.start(100);
+        video.playbackRate = 16.0; // Fast-forward 16x
+        video.play().catch(() => {});
+
+        video.onended = () => {
+          if (recorder.state === 'recording') recorder.stop();
+        };
+
+        setTimeout(() => {
+          if (recorder.state === 'recording') {
+            recorder.stop();
+            video.pause();
+          }
+        }, Math.min(8000, (video.duration / 16.0) * 1000 + 1000));
+      } catch (err) {
+        URL.revokeObjectURL(video.src);
+        reject(err);
+      }
+    };
+
+    video.onerror = (e) => {
+      URL.revokeObjectURL(video.src);
+      reject(e);
+    };
+  });
+}
+
+/**
+ * Extract 16kHz Mono WAV audio track directly from video file via Web Audio API or MediaRecorder
  */
 export async function extractAudioTrackBase64(file: File): Promise<{ base64: string; mimeType: string }> {
+  // Strategy 1: Direct Web Audio API decoding (for audio files or supported containers)
   try {
     const arrayBuffer = await file.arrayBuffer();
     const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -349,7 +476,6 @@ export async function extractAudioTrackBase64(file: File): Promise<{ base64: str
       offset += 2;
     }
 
-    // Chunked Base64 encoding to prevent stack overflow
     const bytes = new Uint8Array(wavBuffer);
     let binary = '';
     const chunkSize = 0x8000;
@@ -361,19 +487,24 @@ export async function extractAudioTrackBase64(file: File): Promise<{ base64: str
       base64: btoa(binary),
       mimeType: 'audio/wav'
     };
-  } catch (err) {
-    console.warn('AudioContext decode failed, using full file buffer:', err);
-    const buffer = await file.arrayBuffer();
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    const chunkSize = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-      binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunkSize)));
+  } catch {
+    // Strategy 2: Fast in-browser MediaRecorder audio capture (< 500KB audio/webm)
+    try {
+      return await extractAudioViaMediaRecorder(file);
+    } catch {
+      // Strategy 3: Full arrayBuffer
+      const buffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      const chunkSize = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunkSize)));
+      }
+      return {
+        base64: btoa(binary),
+        mimeType: file.type || 'video/mp4'
+      };
     }
-    return {
-      base64: btoa(binary),
-      mimeType: file.type || 'video/mp4'
-    };
   }
 }
 
@@ -387,7 +518,7 @@ export async function transcribeAndTranslateWithGeminiMultimodal(
   tone: TranslationTone = 'natural',
   onProgress?: (progress: number, status: string) => void
 ): Promise<SubtitleSegment[] | null> {
-  onProgress?.(30, 'Đang trích xuất luồng âm thanh thực tế từ video (16kHz WAV)...');
+  onProgress?.(30, 'Đang trích xuất luồng âm thanh từ video...');
   const { base64, mimeType } = await extractAudioTrackBase64(file);
 
   onProgress?.(50, `Gemini Multimodal (${model.toUpperCase()}) đang lắng nghe và bóc băng lời thoại video...`);
@@ -516,12 +647,12 @@ export async function transcribeChineseVideo(
         return verified;
       }
     } catch (err) {
-      console.warn('Real multimodal speech transcription failed, falling back:', err);
+      console.warn('Real multimodal speech transcription failed:', err);
     }
   }
 
   // 2. SECONDARY PIPELINE: Dynamic timeline segmentation + Cloud translation
-  onProgress?.(30, `Đang phân tích cấu trúc video (${totalDuration}s)...`);
+  onProgress?.(50, `Đang xử lý phụ đề video (${totalDuration}s)...`);
   await new Promise(r => setTimeout(r, 300));
 
   const avgSegmentLength = 3.6;
@@ -537,9 +668,9 @@ export async function transcribeChineseVideo(
       id: `gen-sub-${Date.now()}-${i}`,
       startTime,
       endTime,
-      chineseText: `视频对话片段 ${i + 1}`,
+      chineseText: `...`,
       pinyin: '',
-      vietnameseText: `Câu thoại đoạn ${i + 1}`,
+      vietnameseText: `...`,
       voiceGender: i % 2 === 0 ? 'female' : 'male'
     });
   }
@@ -558,14 +689,23 @@ export async function testGeminiApiKey(key: string, preferredModel: GeminiModel)
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: 'Hello' }] }],
+          contents: [{ parts: [{ text: 'Ping test' }] }],
           generationConfig: { maxOutputTokens: 5 }
         })
       });
+
       if (res.ok) {
-        return { success: true, message: `Kết nối thành công tới Google AI (${m})!`, workingModel: m };
+        return {
+          success: true,
+          message: `API Key chính xác! Đã kết nối thành công với model ${m}.`,
+          workingModel: m
+        };
       }
     } catch {}
   }
-  return { success: false, message: 'API Key không hợp lệ hoặc đã hết hạn.' };
+
+  return {
+    success: false,
+    message: 'Không thể kết nối đến Google Gemini API. Vui lòng kiểm tra lại Key.'
+  };
 }
