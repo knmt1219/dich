@@ -495,7 +495,8 @@ export async function transcribeChineseVideo(
   _videoFile: File | null,
   duration: number,
   geminiKey?: string,
-  model: GeminiModel = 'gemini-1.5-flash',
+  model: GeminiModel = 'gemini-1.5-pro',
+  tone: TranslationTone = 'natural',
   onProgress?: (progress: number, status: string) => void
 ): Promise<SubtitleSegment[]> {
   const totalDuration = Math.max(5, Math.round(duration * 10) / 10);
@@ -529,9 +530,9 @@ export async function transcribeChineseVideo(
 
   const key = geminiKey || getStoredApiKey().geminiKey;
   if (key) {
-    onProgress?.(55, `AI đang dịch thuật chuyên sâu (${rawSegments.length} câu thoại)...`);
+    onProgress?.(55, `AI đang dịch thuật chuyên sâu với ${model.toUpperCase()} (${rawSegments.length} câu thoại)...`);
     try {
-      rawSegments = await batchTranslateWithGemini(rawSegments, 'natural', model, key);
+      rawSegments = await batchTranslateWithGemini(rawSegments, tone, model, key);
     } catch (e) {
       console.warn('Batch translation fallback engaged:', e);
     }
