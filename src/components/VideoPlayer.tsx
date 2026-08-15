@@ -57,39 +57,46 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setCurrentSub(active);
 
     // Audio Ducking & TTS playback with Auto Speed Sync
-    if (isPlaying && active && !isDubbingMuted && dubbing.dubbingVolume > 0 && active.id !== lastSpokenSubIdRef.current) {
-      lastSpokenSubIdRef.current = active.id;
-      
-      const voice = VIETNAMESE_VOICES.find((v) => v.id === dubbing.selectedVoiceId) || VIETNAMESE_VOICES[0];
-      const segmentDuration = Math.max(0.5, active.endTime - active.startTime);
+    if (isPlaying && active && !isDubbingMuted && dubbing.dubbingVolume > 0) {
+      if (active.id !== lastSpokenSubIdRef.current) {
+        lastSpokenSubIdRef.current = active.id;
+        
+        const voice = VIETNAMESE_VOICES.find((v) => v.id === dubbing.selectedVoiceId) || VIETNAMESE_VOICES[0];
+        const segmentDuration = Math.max(0.5, active.endTime - active.startTime);
 
-      // Duck original video volume
-      if (videoRef.current && dubbing.enableAudioDucking) {
-        videoRef.current.volume = Math.max(0.05, dubbing.originalVolume * dubbing.duckingLevel);
-      }
+        // Duck original video volume
+        if (videoRef.current && dubbing.enableAudioDucking) {
+          videoRef.current.volume = Math.max(0.05, dubbing.originalVolume * dubbing.duckingLevel);
+        }
 
-      ttsService.speak(
-        active.vietnameseText,
-        voice,
-        dubbing,
-        () => {
-          // TTS started
-        },
-        () => {
-          // Restore video volume when TTS finishes
-          if (videoRef.current) {
-            videoRef.current.volume = dubbing.originalVolume;
-          }
-        },
-        segmentDuration
-      );
-    } else if (!active && videoRef.current) {
-      videoRef.current.volume = dubbing.originalVolume;
-      if (ttsService.getIsSpeaking()) {
-        ttsService.stop();
+        ttsService.speak(
+          active.vietnameseText,
+          voice,
+          dubbing,
+          () => {
+            // TTS started
+          },
+          () => {
+            // Restore video volume when TTS finishes
+            if (videoRef.current) {
+              videoRef.current.volume = dubbing.originalVolume;
+            }
+          },
+          segmentDuration
+        );
       }
     }
   }, [currentTime, isPlaying, subtitles, dubbing, isDubbingMuted]);
+
+  // Stop TTS only when video pauses
+  useEffect(() => {
+    if (!isPlaying) {
+      ttsService.stop();
+      if (videoRef.current) {
+        videoRef.current.volume = dubbing.originalVolume;
+      }
+    }
+  }, [isPlaying, dubbing.originalVolume]);
 
   // Handle Video Time Updates
   const handleTimeUpdate = () => {

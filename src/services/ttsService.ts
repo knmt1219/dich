@@ -5,7 +5,6 @@ class TTSService {
   private currentAudio: HTMLAudioElement | null = null;
   private synth: SpeechSynthesis | null = null;
   private isSpeaking = false;
-  private audioCache = new Map<string, string>();
   private audioDurationCache = new Map<string, number>();
   private systemVoices: SpeechSynthesisVoice[] = [];
   private isAudioUnlocked = false;
@@ -29,7 +28,7 @@ class TTSService {
   }
 
   /**
-   * Unlock browser audio context on user gesture (Play click, button click)
+   * Unlock audio playback permissions across mobile and desktop browsers
    */
   public unlockAudio(): void {
     if (this.isAudioUnlocked) return;
@@ -87,32 +86,16 @@ class TTSService {
   }
 
   /**
-   * Get audio candidate URLs for Vietnamese text
+   * Get audio URL for Vietnamese text (Cloudflare function / proxy)
    */
-  public getAudioUrls(text: string): string[] {
-    const cleanText = text.trim().slice(0, 200);
-    if (!cleanText) return [];
-
-    return [
-      `/api/tts?text=${encodeURIComponent(cleanText)}`,
-      `https://translate.google.com/translate_tts?ie=UTF-8&tl=vi&client=dict-chrome-ex&q=${encodeURIComponent(cleanText)}`,
-      `https://translate.google.com/translate_tts?ie=UTF-8&tl=vi&client=gtx&q=${encodeURIComponent(cleanText)}`
-    ];
-  }
-
   public getAudioUrlForText(text: string): string {
-    const cleanText = text.trim();
+    const cleanText = text.trim().slice(0, 200);
     if (!cleanText) return '';
-    if (this.audioCache.has(cleanText)) {
-      return this.audioCache.get(cleanText)!;
-    }
-    const url = `/api/tts?text=${encodeURIComponent(cleanText)}`;
-    this.audioCache.set(cleanText, url);
-    return url;
+    return `/api/tts?text=${encodeURIComponent(cleanText)}`;
   }
 
   /**
-   * Speak Vietnamese text with Zero-Failure Multi-Tier Pipeline
+   * Speak Vietnamese text with Instant Fallback Pipeline
    */
   public speak(
     text: string,
@@ -137,82 +120,105 @@ class TTSService {
       initialRate = this.calculateDynamicRate(cleanText, segmentDuration, initialRate);
     }
 
-    // If user explicitly chose Web Speech API
+    // Explicit system engine chosen
     if (settings.ttsEngine === 'system') {
       this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
       return;
     }
 
-    // Multi-candidate audio stream player
-    const candidateUrls = this.getAudioUrls(cleanText);
-    let currentCandidateIndex = 0;
-    let hasStarted = false;
+    // Candidate URLs: 1. Cloudflare Functions Proxy, 2. Direct Google TTS
+    const encoded = encodeURIComponent(cleanText.slice(0, 200));
+    const candidateUrls = [
+      `/api/tts?text=${encoded}`,
+      `https://translate.google.com/translate_tts?ie=UTF-8&tl=vi&client=dict-chrome-ex&q=${encoded}`,
+      `https://translate.google.com/translate_tts?ie=UTF-8&tl=vi&client=gtx&q=${encoded}`
+    ];
 
-    const tryPlayNextCandidate = () => {
-      if (currentCandidateIndex >= candidateUrls.length) {
-        // All audio URLs exhausted -> Fallback to Web Speech API
+    let candidateIdx = 0;
+    let hasStarted = false;
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const tryNext = () => {
+      if (hasStarted) return;
+      if (fallbackTimer) {
+        clearTimeout(fallbackTimer);
+        fallbackTimer = null;
+      }
+
+      if (candidateIdx >= candidateUrls.length) {
+        // Fallback immediately to Web Speech API
         this.currentAudio = null;
         this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
         return;
       }
 
-      const audioUrl = candidateUrls[currentCandidateIndex];
-      currentCandidateIndex++;
+      const currentUrl = candidateUrls[candidateIdx];
+      candidateIdx++;
 
-      const audio = new Audio(audioUrl);
-      this.currentAudio = audio;
-      audio.volume = Math.min(1.0, Math.max(0.05, settings.dubbingVolume));
-      audio.playbackRate = initialRate;
+      try {
+        const audio = new Audio();
+        this.currentAudio = audio;
+        audio.preload = 'auto';
+        audio.volume = Math.min(1.0, Math.max(0.05, settings.dubbingVolume));
+        audio.playbackRate = initialRate;
 
-      const applyPreciseSpeed = () => {
-        if (audio.duration && !isNaN(audio.duration) && audio.duration > 0) {
-          this.audioDurationCache.set(cleanText, audio.duration);
-          if (settings.autoSpeedSync && segmentDuration && segmentDuration > 0) {
-            const targetSeconds = Math.max(0.4, segmentDuration - 0.1);
-            const exactRate = (audio.duration / targetSeconds) * (settings.speechRate || 1.0);
-            audio.playbackRate = Math.min(2.5, Math.max(0.75, Math.round(exactRate * 100) / 100));
+        audio.onloadedmetadata = () => {
+          if (audio.duration && !isNaN(audio.duration) && audio.duration > 0) {
+            this.audioDurationCache.set(cleanText, audio.duration);
+            if (settings.autoSpeedSync && segmentDuration && segmentDuration > 0) {
+              const targetSeconds = Math.max(0.4, segmentDuration - 0.1);
+              const exactRate = (audio.duration / targetSeconds) * (settings.speechRate || 1.0);
+              audio.playbackRate = Math.min(2.5, Math.max(0.75, Math.round(exactRate * 100) / 100));
+            }
           }
-        }
-      };
+        };
 
-      audio.onloadedmetadata = applyPreciseSpeed;
-      if (audio.readyState >= 1) {
-        applyPreciseSpeed();
-      }
+        audio.onplay = () => {
+          hasStarted = true;
+          this.isSpeaking = true;
+          if (fallbackTimer) clearTimeout(fallbackTimer);
+          onStart?.();
+        };
 
-      audio.onplay = () => {
-        hasStarted = true;
-        this.isSpeaking = true;
-        onStart?.();
-      };
-
-      audio.onended = () => {
-        this.isSpeaking = false;
-        this.currentAudio = null;
-        onEnd?.();
-      };
-
-      audio.onerror = () => {
-        if (!hasStarted) {
-          tryPlayNextCandidate();
-        } else {
+        audio.onended = () => {
           this.isSpeaking = false;
           this.currentAudio = null;
           onEnd?.();
-        }
-      };
+        };
 
-      const playPromise = audio.play();
-      if (playPromise !== undefined) {
-        playPromise.catch(() => {
+        audio.onerror = () => {
           if (!hasStarted) {
-            tryPlayNextCandidate();
+            tryNext();
+          } else {
+            this.isSpeaking = false;
+            this.currentAudio = null;
+            onEnd?.();
           }
-        });
+        };
+
+        audio.src = currentUrl;
+        
+        // Safety timeout: if audio takes >1200ms to load, switch to next candidate or Web Speech
+        fallbackTimer = setTimeout(() => {
+          if (!hasStarted) {
+            tryNext();
+          }
+        }, 1200);
+
+        const playPromise = audio.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(() => {
+            if (!hasStarted) {
+              tryNext();
+            }
+          });
+        }
+      } catch {
+        tryNext();
       }
     };
 
-    tryPlayNextCandidate();
+    tryNext();
   }
 
   /**
@@ -226,15 +232,15 @@ class TTSService {
     onEnd?: () => void,
     segmentDuration?: number
   ): void {
-    if (!this.synth) {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
       onEnd?.();
       return;
     }
 
     try {
-      this.synth.cancel();
-      if (this.synth.paused) {
-        this.synth.resume();
+      window.speechSynthesis.cancel();
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
       }
 
       const utterance = new SpeechSynthesisUtterance(text);
@@ -282,7 +288,7 @@ class TTSService {
         onEnd?.();
       };
 
-      this.synth.speak(utterance);
+      window.speechSynthesis.speak(utterance);
     } catch {
       this.isSpeaking = false;
       onEnd?.();
@@ -303,9 +309,9 @@ class TTSService {
       this.currentAudio = null;
     }
 
-    if (this.synth) {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       try {
-        this.synth.cancel();
+        window.speechSynthesis.cancel();
       } catch (e) {
         console.warn('Error canceling synth:', e);
       }
