@@ -131,31 +131,36 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
           {/* Model Selector */}
           <div>
             <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#ffffff', marginBottom: '0.35rem' }}>
-              Chọn mô hình Gemini AI:
+              Chọn mô hình AI Dịch Thuật Tốt Nhất:
             </label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.55rem' }}>
               {[
-                { id: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash (Ổn định nhất)', sub: 'Khuyên dùng 100% key' },
-                { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', sub: 'Mô hình thế hệ mới' },
-                { id: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro', sub: 'Dịch thuật chuyên sâu' }
+                { id: 'gemini-1.5-pro', label: '⭐ Gemini 1.5 Pro (Khuyên Dùng)', sub: 'Mô hình dịch sâu sắc & chuẩn xác nhất' },
+                { id: 'gemini-2.5-pro', label: '🚀 Gemini 2.5 Pro', sub: 'Mô hình trí tuệ nhân tạo mới nhất' },
+                { id: 'gemini-2.5-flash', label: '⚡ Gemini 2.5 Flash', sub: 'Thế hệ mới, siêu nhanh & thông minh' },
+                { id: 'gemini-1.5-flash', label: '🌪️ Gemini 1.5 Flash', sub: 'Tối ưu tốc độ dịch tức thì' }
               ].map((m) => (
                 <button
                   type="button"
                   key={m.id}
                   onClick={() => onModelChange(m.id as GeminiModel)}
                   style={{
-                    backgroundColor: geminiModel === m.id ? 'rgba(37, 99, 235, 0.2)' : 'var(--bg-card)',
+                    backgroundColor: geminiModel === m.id ? 'rgba(37, 99, 235, 0.25)' : 'var(--bg-card)',
                     border: `1.5px solid ${geminiModel === m.id ? '#3b82f6' : 'var(--border-subtle)'}`,
                     borderRadius: 'var(--radius-md)',
-                    padding: '0.5rem 0.35rem',
-                    textAlign: 'center',
+                    padding: '0.6rem 0.5rem',
+                    textAlign: 'left',
                     cursor: 'pointer',
                     color: geminiModel === m.id ? '#ffffff' : 'var(--text-secondary)',
                     transition: 'all 0.2s ease'
                   }}
                 >
-                  <div style={{ fontSize: '0.75rem', fontWeight: 700 }}>{m.label}</div>
-                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{m.sub}</div>
+                  <div style={{ fontSize: '0.78rem', fontWeight: 700, color: geminiModel === m.id ? '#60a5fa' : '#ffffff' }}>
+                    {m.label}
+                  </div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    {m.sub}
+                  </div>
                 </button>
               ))}
             </div>

@@ -49,7 +49,7 @@ export const App: React.FC = () => {
   const [subtitles, setSubtitles] = useState<SubtitleSegment[]>(SAMPLE_CHINESE_VIDEOS[0].subtitles);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
   const [translationTone, setTranslationTone] = useState<TranslationTone>('natural');
-  const [geminiModel, setGeminiModel] = useState<GeminiModel>('gemini-1.5-flash');
+  const [geminiModel, setGeminiModel] = useState<GeminiModel>('gemini-1.5-pro');
   const [isProcessingAI, setIsProcessingAI] = useState<boolean>(false);
   const [processingProgress, setProcessingProgress] = useState<number>(0);
   const [processingStatusText, setProcessingStatusText] = useState<string>('');
