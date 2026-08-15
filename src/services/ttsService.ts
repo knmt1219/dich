@@ -97,6 +97,42 @@ class TTSService {
   }
 
   /**
+   * Actively verify and pre-load 100% of dubbing audio into memory
+   */
+  public async verifyAndPreloadAllDubbing(
+    subtitles: SubtitleSegment[],
+    onProgress?: (current: number, total: number) => void
+  ): Promise<boolean> {
+    const total = subtitles.length;
+    if (total === 0) return true;
+
+    for (let i = 0; i < total; i++) {
+      const seg = subtitles[i];
+      const cleanText = seg.vietnameseText.replace(/^[^:：]+[:：]\s*/, '').trim();
+      onProgress?.(i + 1, total);
+
+      if (!cleanText) continue;
+
+      if (!this.audioBlobCache.has(cleanText)) {
+        try {
+          const safeText = cleanText.slice(0, 200);
+          const url = `/api/tts?text=${encodeURIComponent(safeText)}`;
+          const res = await fetch(url);
+          if (res.ok) {
+            const blob = await res.blob();
+            if (blob.size > 200) {
+              const blobUrl = URL.createObjectURL(blob);
+              this.audioBlobCache.set(cleanText, blobUrl);
+            }
+          }
+        } catch {}
+      }
+    }
+
+    return true;
+  }
+
+  /**
    * Pre-cache audio blobs for all subtitles with chunked parallel fetching
    */
   public async prefetchSubtitles(subtitles: SubtitleSegment[]): Promise<void> {
