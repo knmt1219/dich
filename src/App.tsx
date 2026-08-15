@@ -9,7 +9,6 @@ import {
   Loader2,
   CheckCircle2
 } from 'lucide-react';
-import confetti from 'canvas-confetti';
 
 import type {
   SubtitleSegment,
@@ -61,6 +60,7 @@ export const App: React.FC = () => {
   const [isProcessingAI, setIsProcessingAI] = useState<boolean>(false);
   const [processingProgress, setProcessingProgress] = useState<number>(0);
   const [processingStatusText, setProcessingStatusText] = useState<string>('');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Subtitle Style Customization
   const [subtitleStyle, setSubtitleStyle] = useState<SubtitleStyle>({
@@ -111,6 +111,13 @@ export const App: React.FC = () => {
     setHasApiKey(Boolean(keys.geminiKey || keys.openaiKey));
   }, []);
 
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage((prev) => (prev === msg ? null : prev));
+    }, 3500);
+  };
+
   const handleScrollToEditor = () => {
     editorRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -146,9 +153,7 @@ export const App: React.FC = () => {
           setProcessingProgress(100);
           setSubtitles(sampleData.subtitles);
           setIsProcessingAI(false);
-          try {
-            confetti({ particleCount: 60, spread: 70, origin: { y: 0.6 } });
-          } catch {}
+          showToast('✅ Hoàn thành dịch thuật 100% & lồng tiếng video!');
         }, 500);
       }, 500);
       return;
@@ -190,9 +195,7 @@ export const App: React.FC = () => {
       );
       setSubtitles(generatedSubs);
       setActiveTab('subtitles');
-      try {
-        confetti({ particleCount: 70, spread: 80, origin: { y: 0.6 } });
-      } catch {}
+      showToast('✅ Hoàn thành dịch thuật 100% & sẵn sàng phát!');
     } catch (err) {
       console.error('Error processing video:', err);
     } finally {
@@ -220,6 +223,7 @@ export const App: React.FC = () => {
   const handleApiKeySaved = () => {
     const keys = getStoredApiKey();
     setHasApiKey(Boolean(keys.geminiKey || keys.openaiKey));
+    showToast('✅ Đã nhập API Key thành công!');
 
     // If there was a pending video waiting for key, run translation right away!
     if (pendingVideo) {
@@ -263,6 +267,7 @@ export const App: React.FC = () => {
     const keys = getStoredApiKey();
     const updatedSubs = await batchTranslateWithGemini(subtitles, tone, geminiModel, keys.geminiKey);
     setSubtitles(updatedSubs);
+    showToast('✅ Đã cập nhật bản dịch mới!');
   };
 
   return (
@@ -680,37 +685,37 @@ export const App: React.FC = () => {
                 {/* Tab Content Display */}
                 <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                   {activeTab === 'subtitles' && (
-                        <SubtitleEditor
-                          subtitles={subtitles}
-                          currentTime={currentTime}
-                          selectedSegmentId={selectedSegmentId}
-                          dubbing={dubbingSettings}
-                          translationTone={translationTone}
-                          geminiModel={geminiModel}
-                          onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
-                          onSelectSegment={(id, time) => {
-                            setSelectedSegmentId(id);
-                            if (time !== undefined) setCurrentTime(time);
-                          }}
-                          onUpdateSegment={handleUpdateSegment}
-                          onDeleteSegment={handleDeleteSegment}
-                          onAddSegment={handleAddSegment}
-                          onBatchTranslate={handleBatchTranslate}
-                        />
+                    <SubtitleEditor
+                      subtitles={subtitles}
+                      currentTime={currentTime}
+                      selectedSegmentId={selectedSegmentId}
+                      dubbing={dubbingSettings}
+                      translationTone={translationTone}
+                      geminiModel={geminiModel}
+                      onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
+                      onSelectSegment={(id, time) => {
+                        setSelectedSegmentId(id);
+                        if (time !== undefined) setCurrentTime(time);
+                      }}
+                      onUpdateSegment={handleUpdateSegment}
+                      onDeleteSegment={handleDeleteSegment}
+                      onAddSegment={handleAddSegment}
+                      onBatchTranslate={handleBatchTranslate}
+                    />
                   )}
 
                   {activeTab === 'voices' && (
-                        <VoiceDubbingPanel
-                          dubbing={dubbingSettings}
-                          onUpdateDubbing={(newSettings) => setDubbingSettings(prev => ({ ...prev, ...newSettings }))}
-                        />
+                    <VoiceDubbingPanel
+                      dubbing={dubbingSettings}
+                      onUpdateDubbing={(newSettings) => setDubbingSettings(prev => ({ ...prev, ...newSettings }))}
+                    />
                   )}
 
                   {activeTab === 'styles' && (
-                        <SubtitleStylePanel
-                          style={subtitleStyle}
-                          onUpdateStyle={(newStyle) => setSubtitleStyle(prev => ({ ...prev, ...newStyle }))}
-                        />
+                    <SubtitleStylePanel
+                      style={subtitleStyle}
+                      onUpdateStyle={(newStyle) => setSubtitleStyle(prev => ({ ...prev, ...newStyle }))}
+                    />
                   )}
                 </div>
               </div>
@@ -739,6 +744,30 @@ export const App: React.FC = () => {
 
       {/* 10. Footer */}
       <Footer />
+
+      {/* Floating Toast Notification */}
+      {toastMessage && (
+        <div style={{
+          position: 'fixed',
+          bottom: '24px',
+          right: '24px',
+          zIndex: 9999,
+          backgroundColor: '#0f172a',
+          border: '1px solid #10b981',
+          color: '#ffffff',
+          padding: '0.75rem 1.25rem',
+          borderRadius: 'var(--radius-lg)',
+          boxShadow: '0 10px 25px rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.6rem',
+          fontSize: '0.875rem',
+          fontWeight: 600
+        }}>
+          <CheckCircle2 size={18} color="#34d399" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
 
       {/* Modals */}
       <ExportModal

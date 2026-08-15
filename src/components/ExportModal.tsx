@@ -4,12 +4,11 @@ import {
   Download,
   Film,
   FileText,
+  CheckCircle2,
   Sparkles,
   Loader2,
-  ArrowDownToLine,
-  CheckCircle2
+  ArrowDownToLine
 } from 'lucide-react';
-import confetti from 'canvas-confetti';
 import type { SubtitleSegment, SubtitleStyle, DubbingSettings } from '../types/video';
 import { generateSRT, generateVTT, generateTXT, downloadFile, drawSubtitleOnCanvas } from '../services/exportService';
 import { ttsService } from '../services/ttsService';
@@ -39,20 +38,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
   if (!isOpen) return null;
 
-  const triggerConfetti = () => {
-    confetti({
-      particleCount: 80,
-      spread: 70,
-      origin: { y: 0.6 }
-    });
-  };
-
   // Export SRT
   const handleExportSRT = (mode: 'vi-only' | 'bilingual') => {
     const srtContent = generateSRT(subtitles, mode);
     const fileName = `phu-de-${mode === 'bilingual' ? 'song-ngu-trung-viet' : 'tieng-viet'}-${Date.now()}.srt`;
     downloadFile(srtContent, fileName, 'text/plain;charset=utf-8');
-    triggerConfetti();
   };
 
   // Export VTT
@@ -60,7 +50,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     const vttContent = generateVTT(subtitles, mode);
     const fileName = `phu-de-${mode === 'bilingual' ? 'song-ngu' : 'tieng-viet'}-${Date.now()}.vtt`;
     downloadFile(vttContent, fileName, 'text/vtt;charset=utf-8');
-    triggerConfetti();
   };
 
   // Export TXT Script
@@ -68,7 +57,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     const txtContent = generateTXT(subtitles);
     const fileName = `kich-ban-dich-trung-viet-${Date.now()}.txt`;
     downloadFile(txtContent, fileName, 'text/plain;charset=utf-8');
-    triggerConfetti();
   };
 
   // Export Dubbed Video WITH FULL AUDIO (Mixed Video Audio + Vietnamese TTS Audio)
@@ -169,7 +157,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({
         setExportProgress(100);
         setStatusMessage('Xuất video thành công đầy đủ âm thanh!');
         audioCtx.close().catch(() => {});
-        triggerConfetti();
       };
 
       // 5. Start playback & recording
