@@ -11,7 +11,7 @@
 [![Cloudflare Pages](https://img.shields.io/badge/Cloudflare_Pages-Edge_Ready-F38020.svg)](https://pages.cloudflare.com/)
 [![Gemini AI](https://img.shields.io/badge/Google_Gemini-1.5_%2F_2.5_Pro-4285F4.svg)](https://ai.google.dev/)
 
-[Features](#-key-features) • [Architecture](#-system-architecture) • [Getting Started](#-getting-started) • [Deployment](#-deployment) • [API Configuration](#-api-keys--security) • [License](#-license)
+[Features](#-key-features) • [Architecture](#-system-architecture) • [Getting Started (Win/Mac/Linux)](#-getting-started--installation) • [Deployment](#-deployment) • [API Configuration](#-api-keys--security) • [License](#-license)
 
 </div>
 
@@ -94,36 +94,123 @@ flowchart TD
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Getting Started & Installation
 
-### Prerequisites
-- **Node.js**: v18.0.0 or higher
-- **npm** (v9+) or **pnpm** / **yarn**
+### 📋 Prerequisites (All Platforms)
+Make sure you have **Node.js (version 18.0.0 or higher)** and **Git** installed on your system.
 
-### Installation
+---
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/knmt1219/dich.git
-   cd dich
-   ```
+### 🪟 Windows Setup Guide
 
-2. **Install dependencies**:
-   ```bash
-   npm install
-   ```
+#### 1. Install Prerequisites (if not already installed)
+Open **PowerShell** as Administrator or use [winget](https://learn.microsoft.com/en-us/windows/package-manager/winget/):
+```powershell
+# Install Node.js LTS and Git using Windows Package Manager
+winget install OpenJS.NodeJS.LTS
+winget install Git.Git
+```
+*(Alternatively, download and run the official installers from [nodejs.org](https://nodejs.org/) and [git-scm.com](https://git-scm.com/).)*
 
-3. **Start the local development server**:
-   ```bash
-   npm run dev
-   ```
-   Open your browser at `http://localhost:5173/` to use the studio.
+#### 2. Clone and Run the Project
+Open **PowerShell**, **Command Prompt (cmd)**, or **Git Bash**:
+```powershell
+# 1. Clone the repository
+git clone https://github.com/knmt1219/dich.git
+cd dich
 
-4. **Build for production**:
-   ```bash
-   npm run build
-   ```
-   The static distribution bundle will be created in the `dist/` directory.
+# 2. Install all dependencies
+npm install
+
+# 3. Start the local studio server
+npm run dev
+```
+Open your browser at **`http://localhost:5173/`**.
+
+#### 3. Build for Production
+```powershell
+npm run build
+```
+
+> **Windows Tip**: If you encounter a script execution policy restriction in PowerShell, run:  
+> `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`
+
+---
+
+### 🍎 macOS Setup Guide
+
+#### 1. Install Prerequisites via Homebrew
+Open **Terminal** (`Command + Space` $\rightarrow$ type `Terminal`):
+```bash
+# Install Homebrew if you don't have it (https://brew.sh)
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Install Node.js LTS and Git
+brew install node git
+```
+
+#### 2. Clone and Run the Project
+```bash
+# 1. Clone the repository
+git clone https://github.com/knmt1219/dich.git
+cd dich
+
+# 2. Install dependencies
+npm install
+
+# 3. Start development server
+npm run dev
+```
+Open **Safari**, **Chrome**, or **Brave** and navigate to **`http://localhost:5173/`**.
+
+#### 3. Build for Production
+```bash
+npm run build
+```
+
+> **macOS Tip**: When using Safari, make sure to allow Auto-Play audio in `Safari Settings -> Websites -> Auto-Play` for optimal real-time dubbing preview.
+
+---
+
+### 🐧 Linux Setup Guide (Ubuntu / Debian / Arch / Fedora)
+
+#### 1. Install Prerequisites
+
+- **Ubuntu / Debian / Linux Mint**:
+  ```bash
+  sudo apt update
+  sudo apt install -y nodejs npm git
+  ```
+  *(Or install Node.js 20+ via NodeSource: `curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt install -y nodejs`)*
+
+- **Arch Linux / Manjaro**:
+  ```bash
+  sudo pacman -S nodejs npm git
+  ```
+
+- **Fedora / RHEL / CentOS**:
+  ```bash
+  sudo dnf install -y nodejs npm git
+  ```
+
+#### 2. Clone and Run the Project
+```bash
+# 1. Clone the repository
+git clone https://github.com/knmt1219/dich.git
+cd dich
+
+# 2. Install dependencies
+npm install
+
+# 3. Start development server
+npm run dev -- --host
+```
+Navigate to **`http://localhost:5173/`** in your browser.
+
+#### 3. Build for Production
+```bash
+npm run build
+```
 
 ---
 
