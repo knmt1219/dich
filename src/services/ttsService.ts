@@ -9,6 +9,7 @@ class TTSService {
   private audioBlobCache = new Map<string, string>();
   private systemVoices: SpeechSynthesisVoice[] = [];
   private isAudioUnlocked = false;
+  private synthHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -78,7 +79,6 @@ class TTSService {
     const words = cleanText.split(/\s+/).filter(Boolean).length;
     if (words === 0) return baseRate;
 
-    // Standard Vietnamese speech: ~3.5 words per second
     const estimatedNormalSeconds = Math.max(0.5, (words / 3.5) + 0.15);
     const targetSeconds = Math.max(0.4, durationSeconds - 0.1);
 
@@ -87,7 +87,7 @@ class TTSService {
   }
 
   /**
-   * Get audio URL for Vietnamese text (Cloudflare function / proxy)
+   * Get audio URL for Vietnamese text
    */
   public getAudioUrlForText(text: string): string {
     const cleanText = text.trim().slice(0, 200);
@@ -103,7 +103,7 @@ class TTSService {
       .map(s => s.vietnameseText.trim())
       .filter(t => t.length > 0 && !this.audioBlobCache.has(t));
 
-    for (const text of texts.slice(0, 15)) {
+    for (const text of texts.slice(0, 20)) {
       try {
         const safeText = text.slice(0, 200);
         const url = `/api/tts?text=${encodeURIComponent(safeText)}`;
@@ -128,7 +128,8 @@ class TTSService {
     onEnd?: () => void,
     segmentDuration?: number
   ): void {
-    const cleanText = text.trim();
+    // Strip speaker prefixes like "Bố: " for cleaner voice speech
+    const cleanText = text.replace(/^[^:：]+[:：]\s*/, '').trim();
     if (!cleanText) {
       onEnd?.();
       return;
@@ -137,7 +138,7 @@ class TTSService {
     this.stop();
     this.unlockAudio();
 
-    // Initial speed estimation
+    // Calculate dynamic speed
     let initialRate = settings.speechRate || 1.0;
     if (settings.autoSpeedSync && segmentDuration && segmentDuration > 0) {
       initialRate = this.calculateDynamicRate(cleanText, segmentDuration, initialRate);
@@ -149,17 +150,14 @@ class TTSService {
       return;
     }
 
-    // Check if we have pre-cached blob URL
+    // Check pre-cached audio blob
     const cachedBlobUrl = this.audioBlobCache.get(cleanText);
-
-    // Candidate URLs
     const encoded = encodeURIComponent(cleanText.slice(0, 200));
     const candidateUrls: string[] = [];
     if (cachedBlobUrl) candidateUrls.push(cachedBlobUrl);
     candidateUrls.push(
       `/api/tts?text=${encoded}`,
-      `https://translate.google.com/translate_tts?ie=UTF-8&tl=vi&client=dict-chrome-ex&q=${encoded}`,
-      `https://translate.google.com/translate_tts?ie=UTF-8&tl=vi&client=gtx&q=${encoded}`
+      `https://translate.google.com/translate_tts?ie=UTF-8&tl=vi&client=dict-chrome-ex&q=${encoded}`
     );
 
     let candidateIdx = 0;
@@ -188,7 +186,7 @@ class TTSService {
         this.currentAudio = audio;
         audio.preload = 'auto';
         audio.volume = Math.min(1.0, Math.max(0.05, settings.dubbingVolume));
-        audio.playbackRate = initialRate;
+        audio.playbackRate = Math.min(2.5, Math.max(0.75, initialRate));
 
         audio.onloadedmetadata = () => {
           if (audio.duration && !isNaN(audio.duration) && audio.duration > 0) {
@@ -226,12 +224,12 @@ class TTSService {
 
         audio.src = currentUrl;
         
-        // Safety timeout: if audio takes >900ms to load, switch to next candidate or Web Speech
+        // Fast 600ms fallback timer to ensure voice is never blocked
         fallbackTimer = setTimeout(() => {
           if (!hasStarted) {
             tryNext();
           }
-        }, 900);
+        }, 600);
 
         const playPromise = audio.play();
         if (playPromise !== undefined) {
@@ -250,7 +248,7 @@ class TTSService {
   }
 
   /**
-   * Web Speech API fallback with duration scaling and voice styling
+   * Web Speech API fallback with guaranteed speech and Chrome heartbeat
    */
   private speakWebSpeech(
     text: string,
@@ -279,7 +277,6 @@ class TTSService {
         effectiveRate = this.calculateDynamicRate(text, segmentDuration, effectiveRate);
       }
 
-      // Voice pitch customization
       let basePitch = settings.pitch || 1.0;
       if (voiceConfig.id === 'vi-story-male') {
         basePitch = 0.88;
@@ -301,6 +298,19 @@ class TTSService {
         if (matched) utterance.voice = matched;
       }
 
+      // Chrome SpeechSynthesis Heartbeat Fix
+      if (this.synthHeartbeatTimer) clearInterval(this.synthHeartbeatTimer);
+      this.synthHeartbeatTimer = setInterval(() => {
+        if (window.speechSynthesis.speaking) {
+          window.speechSynthesis.resume();
+        } else {
+          if (this.synthHeartbeatTimer) {
+            clearInterval(this.synthHeartbeatTimer);
+            this.synthHeartbeatTimer = null;
+          }
+        }
+      }, 250);
+
       utterance.onstart = () => {
         this.isSpeaking = true;
         onStart?.();
@@ -308,11 +318,19 @@ class TTSService {
 
       utterance.onend = () => {
         this.isSpeaking = false;
+        if (this.synthHeartbeatTimer) {
+          clearInterval(this.synthHeartbeatTimer);
+          this.synthHeartbeatTimer = null;
+        }
         onEnd?.();
       };
 
       utterance.onerror = () => {
         this.isSpeaking = false;
+        if (this.synthHeartbeatTimer) {
+          clearInterval(this.synthHeartbeatTimer);
+          this.synthHeartbeatTimer = null;
+        }
         onEnd?.();
       };
 
@@ -327,6 +345,11 @@ class TTSService {
    * Stop any playing audio immediately
    */
   public stop(): void {
+    if (this.synthHeartbeatTimer) {
+      clearInterval(this.synthHeartbeatTimer);
+      this.synthHeartbeatTimer = null;
+    }
+
     if (this.currentAudio) {
       try {
         this.currentAudio.pause();

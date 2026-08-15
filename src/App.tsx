@@ -702,6 +702,10 @@ export const App: React.FC = () => {
                       onDeleteSegment={handleDeleteSegment}
                       onAddSegment={handleAddSegment}
                       onBatchTranslate={handleBatchTranslate}
+                      onImportSubtitles={(newSubs) => {
+                        setSubtitles(newSubs);
+                        ttsService.prefetchSubtitles(newSubs).catch(() => {});
+                      }}
                     />
                   )}
 

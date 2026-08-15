@@ -69,6 +69,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           videoRef.current.volume = Math.max(0.05, dubbing.originalVolume * dubbing.duckingLevel);
         }
 
+        // Safety timeout to ensure video volume is ALWAYS restored
+        setTimeout(() => {
+          if (videoRef.current) {
+            videoRef.current.volume = dubbing.originalVolume;
+          }
+        }, Math.round((segmentDuration + 1.2) * 1000));
+
         ttsService.speak(
           active.vietnameseText,
           voice,
