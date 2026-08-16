@@ -57,14 +57,11 @@ export const Footer: React.FC = () => {
           alignItems: 'center',
           justifyContent: 'space-between',
           fontSize: '0.8rem',
-          color: 'var(--text-muted)',
           gap: '1rem'
         }}>
-          <p>© 2026 DichVid AI. Xây dựng với chuẩn công nghệ SubsVid cho người sáng tạo nội dung Việt Nam.</p>
+          <p>© 2026 DichVid.AI. Nền tảng dịch thuật & lồng tiếng video Trung - Việt thông minh cho người sáng tạo nội dung.</p>
           <div style={{ display: 'flex', gap: '1.5rem' }}>
-            <a href="#how-it-works" style={{ color: 'inherit', textDecoration: 'none' }}>Quy trình</a>
             <a href="#features" style={{ color: 'inherit', textDecoration: 'none' }}>Tính năng</a>
-            <a href="#faq" style={{ color: 'inherit', textDecoration: 'none' }}>Hỏi đáp</a>
           </div>
         </div>
       </div>

@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🎬 SubsVid AI
+# 🎬 DichVid.AI
 ### Automated Bilingual Video Subtitle Translation & AI Dubbing Studio
 *Empowering creators to localize Chinese short-form videos (Douyin, TikTok, Kuaishou, Bilibili) into Vietnamese with contextual AI translation and synchronized voice dubbing.*
 
@@ -19,7 +19,7 @@
 
 ## 📖 Overview
 
-**SubsVid AI** is a client-first, studio-grade web application built to streamline the localization of foreign video content. By combining Large Language Models (LLMs) with dynamic text-to-speech (TTS) synchronization and high-performance HTML5 Canvas / Web Audio rendering, SubsVid AI automatically segments videos, translates Chinese dialogue into natural, culturally-aware Vietnamese, and generates voice dubbing that ends at the exact same millisecond as the original speaker.
+**DichVid.AI** is a client-first, studio-grade web application built to streamline the localization of foreign video content. By combining Large Language Models (LLMs) with dynamic text-to-speech (TTS) synchronization and high-performance HTML5 Canvas / Web Audio rendering, DichVid.AI automatically segments videos, translates Chinese dialogue into natural, culturally-aware Vietnamese, and generates voice dubbing that ends at the exact same millisecond as the original speaker.
 
 ---
 
