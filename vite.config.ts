@@ -2,6 +2,10 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import https from 'https';
 import url from 'url';
+import { execFile } from 'child_process';
+import os from 'os';
+import path from 'path';
+import fs from 'fs';
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -15,6 +19,54 @@ export default defineConfig({
     {
       name: 'bilingual-studio-api-proxy',
       configureServer(server) {
+        // 0. High-Definition Microsoft Edge-TTS Neural Proxy (vi-VN-HoaiMyNeural / vi-VN-NamMinhNeural)
+        server.middlewares.use('/api/edge-tts', (req, res) => {
+          const parsedUrl = url.parse(req.url || '', true);
+          const text = ((parsedUrl.query.text as string) || '').trim();
+          const voice = ((parsedUrl.query.voice as string) || 'vi-VN-HoaiMyNeural').trim();
+
+          if (!text) {
+            res.statusCode = 400;
+            res.end('Missing text query parameter');
+            return;
+          }
+
+          const safeText = text.slice(0, 300);
+          const tempFile = path.join(os.tmpdir(), `edge_tts_${Date.now()}_${Math.random().toString(36).slice(2)}.mp3`);
+
+          execFile('edge-tts', ['--text', safeText, '--voice', voice, '--write-media', tempFile], (err) => {
+            if (!err && fs.existsSync(tempFile) && fs.statSync(tempFile).size > 100) {
+              const audioBuffer = fs.readFileSync(tempFile);
+              try { fs.unlinkSync(tempFile); } catch {}
+              res.writeHead(200, {
+                'Content-Type': 'audio/mpeg',
+                'Access-Control-Allow-Origin': '*',
+                'Cache-Control': 'public, max-age=86400'
+              });
+              res.end(audioBuffer);
+            } else {
+              // Fallback to Google Translate TTS
+              const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=vi&client=dict-chrome-ex&q=${encodeURIComponent(safeText.slice(0, 200))}`;
+              const ttsReq = https.get(ttsUrl, {
+                headers: {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                  'Referer': 'https://translate.google.com/'
+                }
+              }, (ttsRes) => {
+                res.writeHead(ttsRes.statusCode || 200, {
+                  'Content-Type': 'audio/mpeg',
+                  'Access-Control-Allow-Origin': '*'
+                });
+                ttsRes.pipe(res);
+              });
+              ttsReq.on('error', (e) => {
+                res.statusCode = 500;
+                res.end(e.message);
+              });
+            }
+          });
+        });
+
         // 1. Text-to-Speech Edge Audio Proxy
         server.middlewares.use('/api/tts', (req, res) => {
           const parsedUrl = url.parse(req.url || '', true);

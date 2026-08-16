@@ -113,11 +113,14 @@ class TTSService {
       if (!cleanText) continue;
 
       if (!this.audioBlobCache.has(cleanText)) {
+        const isMale = seg.voiceGender === 'male' || /^(\s*[-*•]?\s*)(bố|nam|anh|ông|con trai|chú|bác trai)\s*[:：]/i.test(seg.vietnameseText);
+        const voiceParam = isMale ? 'vi-VN-NamMinhNeural' : 'vi-VN-HoaiMyNeural';
+
         // Try up to 2 times
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
-            const safeText = cleanText.slice(0, 200);
-            const url = `/api/tts?text=${encodeURIComponent(safeText)}`;
+            const safeText = cleanText.slice(0, 300);
+            const url = `/api/edge-tts?text=${encodeURIComponent(safeText)}&voice=${voiceParam}`;
             const res = await fetch(url);
             if (res.ok) {
               const blob = await res.blob();
@@ -130,7 +133,7 @@ class TTSService {
             }
           } catch {}
           // Small delay before retry
-          if (attempt === 0) await new Promise(r => setTimeout(r, 300));
+          if (attempt === 0) await new Promise(r => setTimeout(r, 200));
         }
       } else {
         successCount++;
@@ -144,23 +147,27 @@ class TTSService {
    * Pre-cache audio blobs for all subtitles with chunked parallel fetching
    */
   public async prefetchSubtitles(subtitles: SubtitleSegment[]): Promise<void> {
-    const texts = subtitles
-      .map(s => s.vietnameseText.replace(/^[^:：]+[:：]\s*/, '').trim())
-      .filter(t => t.length > 0 && !this.audioBlobCache.has(t));
+    const segments = subtitles.filter(s => {
+      const t = s.vietnameseText.replace(/^[^:：]+[:：]\s*/, '').trim();
+      return t.length > 0 && !this.audioBlobCache.has(t);
+    });
 
-    const chunkSize = 4;
-    for (let i = 0; i < texts.length; i += chunkSize) {
-      const chunk = texts.slice(i, i + chunkSize);
+    const chunkSize = 3;
+    for (let i = 0; i < segments.length; i += chunkSize) {
+      const chunk = segments.slice(i, i + chunkSize);
       await Promise.all(
-        chunk.map(async (text) => {
+        chunk.map(async (seg) => {
           try {
-            const safeText = text.slice(0, 200);
-            const url = `/api/tts?text=${encodeURIComponent(safeText)}`;
+            const cleanText = seg.vietnameseText.replace(/^[^:：]+[:：]\s*/, '').trim();
+            const isMale = seg.voiceGender === 'male' || /^(\s*[-*•]?\s*)(bố|nam|anh|ông|con trai|chú|bác trai)\s*[:：]/i.test(seg.vietnameseText);
+            const voiceParam = isMale ? 'vi-VN-NamMinhNeural' : 'vi-VN-HoaiMyNeural';
+            const safeText = cleanText.slice(0, 300);
+            const url = `/api/edge-tts?text=${encodeURIComponent(safeText)}&voice=${voiceParam}`;
             const res = await fetch(url);
             if (res.ok) {
               const blob = await res.blob();
               const blobUrl = URL.createObjectURL(blob);
-              this.audioBlobCache.set(text, blobUrl);
+              this.audioBlobCache.set(cleanText, blobUrl);
             }
           } catch {}
         })
@@ -203,9 +210,10 @@ class TTSService {
       return;
     }
 
-    // 2. Play via /api/tts proxy directly (Native Vietnamese MP3 stream)
-    const safeText = cleanText.slice(0, 200);
-    const proxyUrl = `/api/tts?text=${encodeURIComponent(safeText)}`;
+    // 2. Play via /api/edge-tts proxy directly (Native Microsoft Neural MP3 stream)
+    const safeText = cleanText.slice(0, 300);
+    const voiceParam = voiceConfig.gender === 'male' ? 'vi-VN-NamMinhNeural' : 'vi-VN-HoaiMyNeural';
+    const proxyUrl = `/api/edge-tts?text=${encodeURIComponent(safeText)}&voice=${voiceParam}`;
     this.playAudioUrl(proxyUrl, cleanText, initialRate, settings, voiceConfig, onStart, onEnd, segmentDuration);
   }
 
