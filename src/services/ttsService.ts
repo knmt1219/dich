@@ -166,7 +166,8 @@ class TTSService {
     settings: DubbingSettings,
     onStart?: () => void,
     onEnd?: () => void,
-    segmentDuration?: number
+    segmentDuration?: number,
+    directBlobUrl?: string
   ): void {
     // Strip speaker prefixes like "Bố: ", "Mẹ: ", "Con: " so TTS speaks pure Vietnamese dialogue
     const cleanText = text.replace(/^[^:：]+[:：]\s*/, '').trim();
@@ -184,29 +185,17 @@ class TTSService {
       initialRate = this.calculateDynamicRate(cleanText, segmentDuration, initialRate);
     }
 
-    // 1. Check pre-cached audio blob (0ms latency playback)
-    const cachedBlobUrl = this.audioBlobCache.get(cleanText);
+    // 1. Check direct blob url or cached blob (0ms latency playback)
+    const cachedBlobUrl = directBlobUrl || this.audioBlobCache.get(cleanText);
     if (cachedBlobUrl) {
       this.playAudioUrl(cachedBlobUrl, cleanText, initialRate, settings, voiceConfig, onStart, onEnd, segmentDuration);
       return;
     }
 
-    // 2. Direct Web Speech with Vietnamese lang code (Fastest & 100% native in all browsers)
-    this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
-
-    // 3. Background pre-fetch blob for next time
+    // 2. Play via /api/tts proxy directly (Native Vietnamese MP3 stream)
     const safeText = cleanText.slice(0, 200);
-    fetch(`/api/tts?text=${encodeURIComponent(safeText)}`)
-      .then(async (res) => {
-        if (res.ok) {
-          const blob = await res.blob();
-          if (blob.size > 200) {
-            const blobUrl = URL.createObjectURL(blob);
-            this.audioBlobCache.set(cleanText, blobUrl);
-          }
-        }
-      })
-      .catch(() => {});
+    const proxyUrl = `/api/tts?text=${encodeURIComponent(safeText)}`;
+    this.playAudioUrl(proxyUrl, cleanText, initialRate, settings, voiceConfig, onStart, onEnd, segmentDuration);
   }
 
   private playAudioUrl(

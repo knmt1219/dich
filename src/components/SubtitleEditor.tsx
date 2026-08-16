@@ -104,7 +104,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
     ttsService.unlockAudio();
     const voice = VIETNAMESE_VOICES.find(v => v.id === dubbing.selectedVoiceId) || VIETNAMESE_VOICES[0];
     const duration = Math.max(0.5, sub.endTime - sub.startTime);
-    ttsService.speak(sub.vietnameseText, voice, dubbing, undefined, undefined, duration);
+    ttsService.speak(sub.vietnameseText, voice, dubbing, undefined, undefined, duration, sub.audioBlobUrl);
   };
 
   const handleTranslateSingleClick = async (sub: SubtitleSegment) => {

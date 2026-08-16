@@ -106,6 +106,47 @@ export default defineConfig({
             res.end(JSON.stringify({ translatedText: cleanText }));
           });
         });
+      },
+      configurePreviewServer(server) {
+        // Text-to-Speech Edge Audio Proxy for Preview Mode
+        server.middlewares.use('/api/tts', (req, res) => {
+          const parsedUrl = url.parse(req.url || '', true);
+          const text = (parsedUrl.query.text as string) || '';
+
+          if (!text.trim()) {
+            res.statusCode = 400;
+            res.end('Missing text query parameter');
+            return;
+          }
+
+          const safeText = text.trim().slice(0, 200);
+          const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=vi&client=dict-chrome-ex&q=${encodeURIComponent(safeText)}`;
+
+          const ttsReq = https.get(
+            ttsUrl,
+            {
+              headers: {
+                'User-Agent':
+                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Referer': 'https://translate.google.com/',
+                'Accept': '*/*'
+              }
+            },
+            (ttsRes) => {
+              res.writeHead(ttsRes.statusCode || 200, {
+                'Content-Type': 'audio/mpeg',
+                'Access-Control-Allow-Origin': '*',
+                'Cache-Control': 'public, max-age=86400'
+              });
+              ttsRes.pipe(res);
+            }
+          );
+
+          ttsReq.on('error', (err) => {
+            res.statusCode = 500;
+            res.end(err.message);
+          });
+        });
       }
     }
   ]

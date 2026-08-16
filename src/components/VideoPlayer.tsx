@@ -100,7 +100,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               videoRef.current.volume = dubbing.originalVolume;
             }
           },
-          segmentDuration
+          segmentDuration,
+          active.audioBlobUrl
         );
       }
     }

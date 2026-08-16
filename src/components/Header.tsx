@@ -73,20 +73,10 @@ export const Header: React.FC<HeaderProps> = ({ onOpenApiKeyModal, onScrollToEdi
             fontSize: '0.875rem',
             fontWeight: 500
           }}>
-            <a href="#how-it-works" style={{ color: 'var(--text-secondary)', textDecoration: 'none', transition: 'color 0.2s' }}
-               onMouseEnter={e => e.currentTarget.style.color = '#ffffff'}
-               onMouseLeave={e => e.currentTarget.style.color = 'var(--text-secondary)'}>
-              Quy trình 3 bước
-            </a>
             <a href="#features" style={{ color: 'var(--text-secondary)', textDecoration: 'none', transition: 'color 0.2s' }}
                onMouseEnter={e => e.currentTarget.style.color = '#ffffff'}
                onMouseLeave={e => e.currentTarget.style.color = 'var(--text-secondary)'}>
               Tính năng AI
-            </a>
-            <a href="#faq" style={{ color: 'var(--text-secondary)', textDecoration: 'none', transition: 'color 0.2s' }}
-               onMouseEnter={e => e.currentTarget.style.color = '#ffffff'}
-               onMouseLeave={e => e.currentTarget.style.color = 'var(--text-secondary)'}>
-              Hỏi đáp (FAQ)
             </a>
           </nav>
         </div>
