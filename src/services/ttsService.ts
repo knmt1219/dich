@@ -94,7 +94,7 @@ class TTSService {
   }
 
   /**
-   * Actively verify and pre-load 100% of dubbing audio into memory
+   * Actively verify and pre-load 100% of dubbing audio into memory with retry
    */
   public async verifyAndPreloadAllDubbing(
     subtitles: SubtitleSegment[],
@@ -102,6 +102,8 @@ class TTSService {
   ): Promise<boolean> {
     const total = subtitles.length;
     if (total === 0) return true;
+
+    let successCount = 0;
 
     for (let i = 0; i < total; i++) {
       const seg = subtitles[i];
@@ -111,22 +113,31 @@ class TTSService {
       if (!cleanText) continue;
 
       if (!this.audioBlobCache.has(cleanText)) {
-        try {
-          const safeText = cleanText.slice(0, 200);
-          const url = `/api/tts?text=${encodeURIComponent(safeText)}`;
-          const res = await fetch(url);
-          if (res.ok) {
-            const blob = await res.blob();
-            if (blob.size > 200) {
-              const blobUrl = URL.createObjectURL(blob);
-              this.audioBlobCache.set(cleanText, blobUrl);
+        // Try up to 2 times
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const safeText = cleanText.slice(0, 200);
+            const url = `/api/tts?text=${encodeURIComponent(safeText)}`;
+            const res = await fetch(url);
+            if (res.ok) {
+              const blob = await res.blob();
+              if (blob.size > 200) {
+                const blobUrl = URL.createObjectURL(blob);
+                this.audioBlobCache.set(cleanText, blobUrl);
+                successCount++;
+                break;
+              }
             }
-          }
-        } catch {}
+          } catch {}
+          // Small delay before retry
+          if (attempt === 0) await new Promise(r => setTimeout(r, 300));
+        }
+      } else {
+        successCount++;
       }
     }
 
-    return true;
+    return successCount > 0;
   }
 
   /**

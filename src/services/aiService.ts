@@ -14,11 +14,11 @@ export const saveStoredApiKey = (geminiKey: string, openaiKey: string) => {
 };
 
 export const GEMINI_CANDIDATE_MODELS: GeminiModel[] = [
-  'gemini-1.5-pro',
   'gemini-2.5-flash',
-  'gemini-1.5-flash',
+  'gemini-2.5-pro',
+  'gemini-1.5-pro',
   'gemini-2.0-flash-exp',
-  'gemini-2.5-pro'
+  'gemini-1.5-flash'
 ];
 
 /**
@@ -166,7 +166,7 @@ export async function translateSingleSegmentWithGemini(
   chineseText: string,
   tone: TranslationTone = 'natural',
   geminiKey: string,
-  model: GeminiModel = 'gemini-1.5-pro'
+  model: GeminiModel = 'gemini-2.5-flash'
 ): Promise<string> {
   const clean = chineseText.trim();
   if (!clean) return '';
@@ -212,7 +212,7 @@ export async function translateSubtitlesBatchWithGemini(
   subtitles: SubtitleSegment[],
   tone: TranslationTone = 'natural',
   geminiKey: string,
-  model: GeminiModel = 'gemini-1.5-pro',
+  model: GeminiModel = 'gemini-2.5-flash',
   onProgress?: (progress: number, status: string) => void
 ): Promise<SubtitleSegment[]> {
   const needsTranslation = subtitles.filter(
@@ -514,7 +514,7 @@ export async function extractAudioTrackBase64(file: File): Promise<{ base64: str
 export async function transcribeAndTranslateWithGeminiMultimodal(
   file: File,
   geminiKey: string,
-  model: GeminiModel = 'gemini-1.5-pro',
+  model: GeminiModel = 'gemini-2.5-flash',
   tone: TranslationTone = 'natural',
   onProgress?: (progress: number, status: string) => void
 ): Promise<SubtitleSegment[] | null> {
@@ -622,7 +622,7 @@ export async function transcribeChineseVideo(
   videoFile: File | null,
   duration: number,
   geminiKey?: string,
-  model: GeminiModel = 'gemini-1.5-pro',
+  model: GeminiModel = 'gemini-2.5-flash',
   tone: TranslationTone = 'natural',
   onProgress?: (progress: number, status: string) => void
 ): Promise<SubtitleSegment[]> {
