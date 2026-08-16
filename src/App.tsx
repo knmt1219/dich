@@ -175,6 +175,8 @@ export const App: React.FC = () => {
       realDuration = 30;
     }
 
+    setVideoDuration(realDuration);
+
     // Run AI transcription, deep translation and mandatory 100% verification
     try {
       const keys = getStoredApiKey();
