@@ -22,7 +22,6 @@ import type {
 import { VIETNAMESE_VOICES } from './mockData/sampleVideos';
 import {
   transcribeChineseVideo,
-  verifyAndRefineAllTranslations,
   batchTranslateWithGemini,
   getStoredApiKey
 } from './services/aiService';
@@ -180,58 +179,28 @@ export const App: React.FC = () => {
     try {
       const keys = getStoredApiKey();
 
-      // Stage 1: Audio Extraction & Multimodal Bóc Băng
-      setProcessingProgress(15);
-      setProcessingStatusText('[1/4] Đang trích xuất luồng âm thanh & Gemini đang lắng nghe lời thoại video...');
+      setProcessingProgress(20);
+      setProcessingStatusText('Gemini đang lắng nghe và bóc băng lời thoại video...');
 
-      let generatedSubs = await transcribeChineseVideo(
+      const generatedSubs = await transcribeChineseVideo(
         file,
         realDuration,
         keys.geminiKey,
         geminiModel,
         translationTone,
         (progress, status) => {
-          setProcessingProgress(Math.min(50, progress));
-          setProcessingStatusText(status);
-        }
-      );
-
-      // Stage 2: 100% Translation Quality Scanner
-      setProcessingProgress(55);
-      setProcessingStatusText('[2/4] Đang quét thẩm định bản dịch: Đảm bảo 100% chuẩn ngữ cảnh & sạch chữ Hán...');
-      generatedSubs = await verifyAndRefineAllTranslations(
-        generatedSubs,
-        translationTone,
-        geminiModel,
-        keys.geminiKey,
-        (p, status) => {
-          setProcessingProgress(55 + Math.round((p / 100) * 15));
-          setProcessingStatusText(status);
-        }
-      );
-
-      // Stage 3: 100% Voice Dubbing TTS Verification Scanner
-      setProcessingProgress(72);
-      setProcessingStatusText('[3/4] Đang kiểm tra âm thanh lồng tiếng: Đảm bảo 100% câu thoại đều có giọng đọc AI...');
-
-      await ttsService.verifyAndPreloadAllDubbing(
-        generatedSubs,
-        (current, total) => {
-          const progress = 72 + Math.round((current / total) * 23);
           setProcessingProgress(progress);
-          setProcessingStatusText(`[3/4] Đang nạp âm thanh lồng tiếng câu #${current}/${total}...`);
+          setProcessingStatusText(status);
         }
       );
 
-      // Stage 4: 100% Quality Certification Gate
-      setProcessingProgress(98);
-      setProcessingStatusText('[4/4] Chứng nhận đạt chuẩn 100%: Bản dịch chuẩn xác & Lồng tiếng sẵn sàng!');
-      await new Promise((r) => setTimeout(r, 600));
-
-      setProcessingProgress(100);
       setSubtitles(generatedSubs);
+      setProcessingProgress(100);
       setActiveTab('subtitles');
-      showToast('✅ Đã kiểm tra đạt chuẩn 100%: Dịch đúng & Lồng tiếng sẵn sàng!');
+      showToast('✅ Hoàn thành bóc băng & dịch thuật 100%!');
+
+      // Pre-cache voice dubbing audio in background
+      ttsService.prefetchSubtitles(generatedSubs).catch(() => {});
     } catch (err) {
       console.error('Error processing video:', err);
       showToast('❌ Có lỗi trong quá trình xử lý. Vui lòng thử lại!');
