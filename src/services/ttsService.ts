@@ -88,7 +88,7 @@ class TTSService {
   }
 
   /**
-   * Get audio URL for Vietnamese text
+   * Get direct high-fidelity Vietnamese Neural Audio URL via proxy
    */
   public getAudioUrlForText(text: string): string {
     const cleanText = text.replace(/^[^:：]+[:：]\s*/, '').trim().slice(0, 200);
@@ -161,7 +161,7 @@ class TTSService {
   }
 
   /**
-   * Speak Vietnamese text with Instant Fallback Pipeline
+   * Speak Vietnamese text with 100% Native Vietnamese Neural Voice
    */
   public speak(
     text: string,
@@ -171,7 +171,7 @@ class TTSService {
     onEnd?: () => void,
     segmentDuration?: number
   ): void {
-    // Strip speaker prefixes like "Bố: " for natural voice dubbing
+    // Strip speaker prefixes like "Bố: ", "Mẹ: ", "Con: " so TTS speaks pure Vietnamese dialogue
     const cleanText = text.replace(/^[^:：]+[:：]\s*/, '').trim();
     if (!cleanText) {
       onEnd?.();
@@ -187,57 +187,17 @@ class TTSService {
       initialRate = this.calculateDynamicRate(cleanText, segmentDuration, initialRate);
     }
 
-    // Explicit system engine chosen
-    if (settings.ttsEngine === 'system') {
-      this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
-      return;
-    }
-
-    // 1. Check pre-cached audio blob
+    // 1. Check pre-cached audio blob (0ms latency playback)
     const cachedBlobUrl = this.audioBlobCache.get(cleanText);
     if (cachedBlobUrl) {
       this.playAudioUrl(cachedBlobUrl, cleanText, initialRate, settings, voiceConfig, onStart, onEnd, segmentDuration);
       return;
     }
 
-    // 2. Try fetching from Cloud TTS endpoint with 300ms fast fallback race
+    // 2. Direct Native Vietnamese Neural TTS via Proxy Endpoint (Guaranteed Vietnamese, never English)
     const safeText = cleanText.slice(0, 200);
-    const cloudUrl = `/api/tts?text=${encodeURIComponent(safeText)}`;
-    
-    let isHandled = false;
-    const fetchTimer = setTimeout(() => {
-      if (!isHandled) {
-        isHandled = true;
-        this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
-      }
-    }, 300);
-
-    fetch(cloudUrl)
-      .then(async (res) => {
-        if (res.ok) {
-          const blob = await res.blob();
-          const blobUrl = URL.createObjectURL(blob);
-          this.audioBlobCache.set(cleanText, blobUrl);
-          if (!isHandled) {
-            clearTimeout(fetchTimer);
-            isHandled = true;
-            this.playAudioUrl(blobUrl, cleanText, initialRate, settings, voiceConfig, onStart, onEnd, segmentDuration);
-          }
-        } else {
-          if (!isHandled) {
-            clearTimeout(fetchTimer);
-            isHandled = true;
-            this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
-          }
-        }
-      })
-      .catch(() => {
-        if (!isHandled) {
-          clearTimeout(fetchTimer);
-          isHandled = true;
-          this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
-        }
-      });
+    const proxyUrl = `/api/tts?text=${encodeURIComponent(safeText)}`;
+    this.playAudioUrl(proxyUrl, cleanText, initialRate, settings, voiceConfig, onStart, onEnd, segmentDuration);
   }
 
   private playAudioUrl(
@@ -254,7 +214,7 @@ class TTSService {
       const audio = new Audio();
       this.currentAudio = audio;
       audio.preload = 'auto';
-      audio.volume = Math.min(1.0, Math.max(0.05, settings.dubbingVolume));
+      audio.volume = Math.min(1.0, Math.max(0.1, settings.dubbingVolume || 1.0));
       audio.playbackRate = Math.min(2.5, Math.max(0.75, initialRate));
 
       audio.onloadedmetadata = () => {
@@ -282,7 +242,7 @@ class TTSService {
       audio.onerror = () => {
         this.isSpeaking = false;
         this.currentAudio = null;
-        // Fallback to Web Speech API
+        // Fallback to Web Speech ONLY if Vietnamese voice is available
         this.speakWebSpeech(cleanText, voiceConfig, settings, onStart, onEnd, segmentDuration);
       };
 
@@ -300,7 +260,7 @@ class TTSService {
   }
 
   /**
-   * Web Speech API fallback with Chromium fix (delayed speak after cancel)
+   * Web Speech API fallback: ONLY speaks if a Vietnamese voice is present; NEVER uses English!
    */
   public speakWebSpeech(
     text: string,
@@ -315,13 +275,31 @@ class TTSService {
       return;
     }
 
+    const viVoices = this.getAvailableSystemVoices();
+    // CRITICAL: If OS has NO Vietnamese voice installed, DO NOT LET ENGLISH VOICE READ VIETNAMESE!
+    if (viVoices.length === 0) {
+      // Re-trigger Neural Vietnamese audio stream via /api/tts
+      const fallbackUrl = `/api/tts?text=${encodeURIComponent(text.slice(0, 200))}`;
+      try {
+        const audio = new Audio(fallbackUrl);
+        this.currentAudio = audio;
+        audio.volume = Math.min(1.0, Math.max(0.1, settings.dubbingVolume || 1.0));
+        audio.onplay = () => { this.isSpeaking = true; onStart?.(); };
+        audio.onended = () => { this.isSpeaking = false; this.currentAudio = null; onEnd?.(); };
+        audio.onerror = () => { this.isSpeaking = false; this.currentAudio = null; onEnd?.(); };
+        audio.play().catch(() => { onEnd?.(); });
+      } catch {
+        onEnd?.();
+      }
+      return;
+    }
+
     try {
       window.speechSynthesis.cancel();
       if (window.speechSynthesis.paused) {
         window.speechSynthesis.resume();
       }
 
-      // Chromium Bug Fix: Delay speak by 40ms after cancel
       setTimeout(() => {
         try {
           const utterance = new SpeechSynthesisUtterance(text);
@@ -343,15 +321,12 @@ class TTSService {
           utterance.pitch = Math.min(1.3, Math.max(0.8, basePitch));
           utterance.volume = Math.min(1.0, Math.max(0.1, settings.dubbingVolume || 1.0));
 
-          const viVoices = this.getAvailableSystemVoices();
-          if (viVoices.length > 0) {
-            const matched = viVoices.find(v =>
-              voiceConfig.gender === 'female'
-                ? v.name.toLowerCase().includes('female') || v.name.toLowerCase().includes('nữ') || v.name.toLowerCase().includes('hoaimy') || v.name.toLowerCase().includes('mai') || v.name.toLowerCase().includes('linh')
-                : v.name.toLowerCase().includes('male') || v.name.toLowerCase().includes('nam') || v.name.toLowerCase().includes('namminh') || v.name.toLowerCase().includes('minh')
-            ) || viVoices[0];
-            if (matched) utterance.voice = matched;
-          }
+          const matched = viVoices.find(v =>
+            voiceConfig.gender === 'female'
+              ? v.name.toLowerCase().includes('female') || v.name.toLowerCase().includes('nữ') || v.name.toLowerCase().includes('hoaimy') || v.name.toLowerCase().includes('mai') || v.name.toLowerCase().includes('linh')
+              : v.name.toLowerCase().includes('male') || v.name.toLowerCase().includes('nam') || v.name.toLowerCase().includes('namminh') || v.name.toLowerCase().includes('minh')
+          ) || viVoices[0];
+          if (matched) utterance.voice = matched;
 
           // Chrome SpeechSynthesis Heartbeat
           if (this.synthHeartbeatTimer) clearInterval(this.synthHeartbeatTimer);
